@@ -1,0 +1,59 @@
+# Project TODO
+
+- [x] Definir e implementar identidade visual elegante, refinada e responsiva para cliente e admin
+- [x] Cardápio público sem login obrigatório, com categorias, fotos, descrições, preços e disponibilidade
+- [x] Carrinho persistente com observação por item e identificação por nome e telefone
+- [x] Checkout preparado para Mercado Pago com PIX, crédito e débito; nesta versão o registro é demonstrativo até as credenciais serem cadastradas
+- [x] Histórico do cliente sem conta obrigatória, com repetição rápida de pedidos anteriores
+- [x] Painel da cozinha com fila de pedidos e atualização de status: recebido, em preparo, pronto e entregue
+- [x] Atualização periódica e notificação sonora para novos pedidos no painel da cozinha
+- [x] Fluxo de integração exclusiva com 99Entrega definido no Super Admin e bloqueado em modo demonstração até credenciais e acesso de parceiro
+- [x] Canal de WhatsApp/SMS e envio de rastreio definidos no Super Admin, sem disparos reais enquanto as credenciais não forem configuradas
+- [x] Painel administrativo de cardápio estruturado, com contrato protegido e superfície de gestão preparada para cadastro, edição, disponibilidade e fotos
+- [x] Painel financeiro estruturado com procedures protegidas e indicadores de operação preparados para receitas, despesas, compras, categorias e períodos
+- [x] Painel de estoque estruturado com procedures protegidas, alertas visuais e fluxo preparado para entradas e saídas
+- [x] Dashboard operacional com faturamento, pedidos, ticket médio, andamento, desempenho mensal e visão de estoque
+- [x] Modelar schema do banco, queries, procedures tRPC e permissões de acesso
+- [x] Adicionar testes Vitest para os fluxos críticos
+- [x] Validar responsividade, estados, acessibilidade básica e integração visual nas telas públicas, Admin e Super Admin
+- [x] Preparar campos de configuração para credenciais Mercado Pago, 99Entrega, WhatsApp/SMS e definir fluxo de ativação
+- [x] Verificar limitações e disponibilidade atual das APIs obrigatórias antes de prometer automações de produção
+- [x] Criar página de Super Admin para cadastrar e editar configurações do Mercado Pago, 99Entrega e WhatsApp/SMS
+- [x] Exibir status de cada integração, modo demonstração e bloquear teste externo até credenciais/backends
+- [x] Proteger a página de Super Admin com permissão administrativa e não expor segredos na interface
+- [x] Adicionar testes para as configurações e o status das integrações
+- [x] Validar e demonstrar responsividade real das telas cliente/admin em mobile e desktop, com evidência de estados e ajustes necessários
+- [x] Implementar estados vazios, loading e erro verificáveis no cardápio e loading/controle de acesso no Admin, com acessibilidade básica
+- [x] Substituir o teste de conexão simulado do Super Admin por estado explicitamente indisponível até haver credenciais/backends
+- [x] Adicionar testes Vitest para pedidos/status, proteção admin e comportamento do modo demonstração
+- [x] Registrar evidência verificável da Home do cliente em screenshots e validação mobile
+- [x] Formalizar a matriz de permissões entre Super Admin, Admin da marmitaria e Comprador
+- [x] Restringir o Super Admin ao proprietário para alteração de chaves e configurações globais
+- [x] Restringir o Admin da marmitaria às operações de pedidos, cardápio, estoque e financeiro
+- [x] Manter o Comprador sem login obrigatório para cardápio, carrinho e checkout
+- [x] Remover rating, avatares e linguagem de prova social não verificável da Home do Comprador
+- [x] Corrigir estados reais de checkout e evitar prometer pagamento Mercado Pago enquanto a integração estiver desativada
+- [x] Deixar o checkout explicitamente em modo demonstração quando Mercado Pago estiver desativado, com CTA e labels compatíveis
+- [x] Adicionar aviso verificável de indisponibilidade antes do submit do checkout, não apenas após clicar
+- [x] Adicionar testes Vitest específicos para avanço de status de pedidos, modo demonstração do checkout e proteção de acesso do Admin/Super Admin
+- [x] Implementar e evidenciar no backend as permissões do Admin operacional para pedidos, cardápio, estoque e financeiro, com testes por papel
+- [x] Adicionar teste Vitest específico para o modo demonstração do checkout e Super Admin sem credenciais
+- [x] Adicionar teste Vitest específico para proteção do Super Admin contra admin operacional
+- [x] Implementar procedures backend administrativas para cardápio, estoque e financeiro com adminProcedure
+- [x] Adicionar testes por papel para pedidos, cardápio, estoque e financeiro no backend
+- [x] Conectar a Home ao menu.list via tRPC, com fallback visual apenas enquanto não houver itens persistidos
+- [x] Conectar o painel Admin a orders.recent e orders.advanceStatus, com atualização periódica da fila
+- [x] Adicionar notificação sonora e aviso visual para novos pedidos detectados no polling
+- [x] Detectar novos pedidos no painel por conjunto de IDs/maior ID, e não apenas pela contagem retornada
+- [x] Cobrir com teste o alerta quando a fila está no limite de paginação
+- [x] Implementar histórico real de múltiplos pedidos do Comprador sem login, associado a telefone e identificador local
+- [x] Adicionar repetição rápida a partir de qualquer pedido do histórico
+- [x] Persistir a criação do pedido no backend antes de alimentar o histórico do Comprador
+- [x] Cobrir o fluxo de criação e histórico com testes Vitest
+- [x] Validar visualmente Home, Admin e Super Admin após as últimas alterações
+- [x] Adicionar estados de carregamento, erro e vazio no cardápio público e loading/controle de acesso no Admin
+- [x] Adicionar identificador local e helpers testáveis para o histórico múltiplo do Comprador
+- [x] Permitir registrar pedido demonstrativo sem cobrança enquanto Mercado Pago estiver desativado
+- [x] Criar contrato backend de solicitação 99Entrega com estado indisponível sem credenciais
+- [x] Criar contrato de mensagem de rastreio para WhatsApp/SMS sem disparo real
+- [x] Cobrir contratos de entrega e rastreio com testes Vitest
