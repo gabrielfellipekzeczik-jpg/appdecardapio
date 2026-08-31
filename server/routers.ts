@@ -37,6 +37,7 @@ export const appRouter = router({
       tagline: z.string().optional(),
       logoUrl: z.string().url().optional(),
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      templateId: z.enum(["classic", "modern"]).optional(),
       pickupAddress: z.string().min(5).optional(),
     })).mutation(({ ctx, input }) => updateCompanyBranding(ctx.companyId, input)),
     // Completes signup for an already-authenticated Supabase user (see client/src/pages/CompanySignUp.tsx

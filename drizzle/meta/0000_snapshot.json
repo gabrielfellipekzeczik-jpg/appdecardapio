@@ -1,5 +1,5 @@
 {
-  "id": "7f17a900-995f-4f9d-aa5c-01cf31646701",
+  "id": "6a915331-c99a-4768-ae90-39dc3ee84c5e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -43,6 +43,14 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": false
+        },
+        "templateId": {
+          "name": "templateId",
+          "type": "storefront_template",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'classic'"
         },
         "pickupAddress": {
           "name": "pickupAddress",
@@ -979,6 +987,14 @@
         "approved",
         "rejected",
         "refunded"
+      ]
+    },
+    "public.storefront_template": {
+      "name": "storefront_template",
+      "schema": "public",
+      "values": [
+        "classic",
+        "modern"
       ]
     },
     "public.user_role": {
