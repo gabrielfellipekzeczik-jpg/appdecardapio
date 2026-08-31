@@ -3,7 +3,7 @@ CREATE TYPE "public"."integration_provider" AS ENUM('mercadopago', 'uber_direct'
 CREATE TYPE "public"."inventory_movement_type" AS ENUM('in', 'out', 'adjustment');--> statement-breakpoint
 CREATE TYPE "public"."order_status" AS ENUM('received', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."payment_status" AS ENUM('pending', 'approved', 'rejected', 'refunded');--> statement-breakpoint
-CREATE TYPE "public"."storefront_template" AS ENUM('classic', 'modern', 'cover');--> statement-breakpoint
+CREATE TYPE "public"."storefront_template" AS ENUM('classic', 'modern', 'cover', 'premium');--> statement-breakpoint
 CREATE TYPE "public"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
 CREATE TABLE "companies" (
 	"id" serial PRIMARY KEY NOT NULL,
@@ -11,6 +11,7 @@ CREATE TABLE "companies" (
 	"name" varchar(160) NOT NULL,
 	"tagline" text,
 	"logoUrl" text,
+	"heroImageUrl" text,
 	"primaryColor" varchar(20),
 	"templateId" "storefront_template" DEFAULT 'classic' NOT NULL,
 	"pickupAddress" text,

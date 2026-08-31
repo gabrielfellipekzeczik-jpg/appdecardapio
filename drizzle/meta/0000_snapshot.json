@@ -1,5 +1,5 @@
 {
-  "id": "eb8dea43-d68c-4688-90ef-08ee68db978a",
+  "id": "a3afcba3-2762-4b96-89d5-5b58a56b8ffa",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -34,6 +34,12 @@
         },
         "logoUrl": {
           "name": "logoUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "heroImageUrl": {
+          "name": "heroImageUrl",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -995,7 +1001,8 @@
       "values": [
         "classic",
         "modern",
-        "cover"
+        "cover",
+        "premium"
       ]
     },
     "public.user_role": {

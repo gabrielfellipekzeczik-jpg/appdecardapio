@@ -5,8 +5,9 @@ import { useStorefront } from "@/lib/useStorefront";
 import { ClassicTemplate } from "@/storefront-templates/ClassicTemplate";
 import { ModernTemplate } from "@/storefront-templates/ModernTemplate";
 import { CoverTemplate } from "@/storefront-templates/CoverTemplate";
+import { PremiumTemplate } from "@/storefront-templates/PremiumTemplate";
 
-const TEMPLATES = { classic: ClassicTemplate, modern: ModernTemplate, cover: CoverTemplate };
+const TEMPLATES = { classic: ClassicTemplate, modern: ModernTemplate, cover: CoverTemplate, premium: PremiumTemplate };
 
 export default function Home() {
   const { slug = "" } = useParams<{ slug: string }>();

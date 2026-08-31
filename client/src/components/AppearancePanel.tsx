@@ -10,12 +10,13 @@ import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 
 const TEMPLATE_OPTIONS = [
+  { id: "premium" as const, name: "Bistrô", description: "Escuro e elegante, com foto de fundo, categorias na lateral e carrinho sempre visível. Tem alternância claro/escuro." },
   { id: "cover" as const, name: "Capa de cardápio", description: "Capa com sua logo que abre com uma animação, revelando o cardápio por dentro." },
   { id: "classic" as const, name: "Clássico", description: "Editorial, aconchegante — fotos grandes e seções de história." },
   { id: "modern" as const, name: "Moderno", description: "Minimalista, direto ao ponto — lista compacta e cor de marca em destaque." },
 ];
 
-/** Logo, nome, cor de marca e escolha de modelo da página pública da empresa. */
+/** Logo, foto de fundo, nome, cor de marca e escolha de modelo da página pública da empresa. */
 export function AppearancePanel() {
   const companyQuery = trpc.company.mine.useQuery();
   const utils = trpc.useUtils();
@@ -28,7 +29,9 @@ export function AppearancePanel() {
   const [tagline, setTagline] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#a05c32");
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingHero, setUploadingHero] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const heroInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!companyQuery.data) return;
@@ -39,24 +42,44 @@ export function AppearancePanel() {
 
   const company = companyQuery.data;
 
+  async function uploadImage(file: File, prefix: "logo" | "hero"): Promise<string> {
+    const path = `${company!.id}/${prefix}-${Date.now()}.${file.name.split(".").pop() ?? "png"}`;
+    const { error: uploadError } = await supabase.storage.from("logos").upload(path, file, { upsert: true, cacheControl: "3600" });
+    if (uploadError) throw uploadError;
+    return supabase.storage.from("logos").getPublicUrl(path).data.publicUrl;
+  }
+
   const handleLogoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !company) return;
     setUploadingLogo(true);
     try {
-      const path = `${company.id}/logo-${Date.now()}.${file.name.split(".").pop() ?? "png"}`;
-      const { error: uploadError } = await supabase.storage.from("logos").upload(path, file, { upsert: true, cacheControl: "3600" });
-      if (uploadError) throw uploadError;
-      const { data } = supabase.storage.from("logos").getPublicUrl(path);
-      const extractedColor = await extractDominantColor(data.publicUrl);
-      await updateMutation.mutateAsync({ logoUrl: data.publicUrl, ...(extractedColor ? { primaryColor: extractedColor } : {}) });
+      const publicUrl = await uploadImage(file, "logo");
+      const extractedColor = await extractDominantColor(publicUrl);
+      await updateMutation.mutateAsync({ logoUrl: publicUrl, ...(extractedColor ? { primaryColor: extractedColor } : {}) });
       if (extractedColor) setPrimaryColor(extractedColor);
       toast.success(extractedColor ? "Logo atualizada — cor da capa ajustada pra combinar." : "Logo atualizada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível enviar a logo. Verifique se o bucket \"logos\" existe no Supabase Storage.");
     } finally {
       setUploadingLogo(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  };
+
+  const handleHeroChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !company) return;
+    setUploadingHero(true);
+    try {
+      const publicUrl = await uploadImage(file, "hero");
+      await updateMutation.mutateAsync({ heroImageUrl: publicUrl });
+      toast.success("Foto de fundo atualizada.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível enviar a foto.");
+    } finally {
+      setUploadingHero(false);
+      if (heroInputRef.current) heroInputRef.current.value = "";
     }
   };
 
@@ -73,13 +96,25 @@ export function AppearancePanel() {
           <div className="flex items-center gap-4">
             {company.logoUrl ? <img src={company.logoUrl} alt={company.name} className="h-16 w-16 rounded-2xl object-cover" /> : <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#f1ece3] text-xs text-[#a79b8d]">sem logo</div>}
             <div>
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-              <Button variant="outline" size="sm" disabled={uploadingLogo} onClick={() => fileInputRef.current?.click()} className="rounded-lg">
+              <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+              <Button variant="outline" size="sm" disabled={uploadingLogo} onClick={() => logoInputRef.current?.click()} className="rounded-lg">
                 {uploadingLogo ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1.5 h-3.5 w-3.5" />} {uploadingLogo ? "Enviando..." : "Enviar logo"}
               </Button>
               <p className="mt-1 text-xs text-[#a79b8d]">PNG ou JPG, fundo transparente funciona melhor.</p>
             </div>
           </div>
+
+          <div className="flex items-center gap-4">
+            {company.heroImageUrl ? <img src={company.heroImageUrl} alt="Foto de fundo" className="h-16 w-28 rounded-2xl object-cover" /> : <div className="flex h-16 w-28 items-center justify-center rounded-2xl bg-[#f1ece3] text-xs text-[#a79b8d]">sem foto</div>}
+            <div>
+              <input ref={heroInputRef} type="file" accept="image/*" className="hidden" onChange={handleHeroChange} />
+              <Button variant="outline" size="sm" disabled={uploadingHero} onClick={() => heroInputRef.current?.click()} className="rounded-lg">
+                {uploadingHero ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1.5 h-3.5 w-3.5" />} {uploadingHero ? "Enviando..." : "Enviar foto de fundo"}
+              </Button>
+              <p className="mt-1 text-xs text-[#a79b8d]">Foto do salão/prato pra capa do modelo Bistrô. Uma foto horizontal e escura funciona melhor.</p>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label className="field-label">Nome do restaurante</label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
             <div><label className="field-label">Cor de marca</label><div className="flex items-center gap-2"><input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="h-10 w-12 cursor-pointer rounded-lg border border-[#e5e0d7]" /><Input value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="flex-1" /></div></div>

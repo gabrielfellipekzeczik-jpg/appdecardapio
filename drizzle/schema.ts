@@ -1,7 +1,7 @@
 import { boolean, index, integer, numeric, pgEnum, pgTable, serial, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const companyStatusEnum = pgEnum("company_status", ["active", "suspended"]);
-export const storefrontTemplateEnum = pgEnum("storefront_template", ["classic", "modern", "cover"]);
+export const storefrontTemplateEnum = pgEnum("storefront_template", ["classic", "modern", "cover", "premium"]);
 
 /** One row per tenant restaurant/marmitaria on the platform. */
 export const companies = pgTable("companies", {
@@ -10,6 +10,7 @@ export const companies = pgTable("companies", {
   name: varchar("name", { length: 160 }).notNull(),
   tagline: text("tagline"),
   logoUrl: text("logoUrl"),
+  heroImageUrl: text("heroImageUrl"),
   primaryColor: varchar("primaryColor", { length: 20 }),
   templateId: storefrontTemplateEnum("templateId").default("classic").notNull(),
   pickupAddress: text("pickupAddress"),
