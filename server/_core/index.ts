@@ -57,13 +57,25 @@ async function startServer() {
   }
 
   // An explicit PORT (set by the host: Vercel, a launch config, etc.) is
-  // authoritative — bind it directly rather than scanning past it, since a
-  // reverse proxy may already be listening in front of it. Only scan for a
-  // free port as a local convenience when nothing external assigned one.
-  const port = process.env.PORT ? parseInt(process.env.PORT) : await findAvailablePort(3000);
+  // normally authoritative — bind it directly rather than scanning past it,
+  // since a reverse proxy may already be listening in front of it. But if
+  // that exact port turns out to be taken (a stray .env value colliding with
+  // some other unrelated app on the machine), fall back to scanning instead
+  // of crashing — a working server on the wrong port beats no server at all.
+  const preferredPort = process.env.PORT ? parseInt(process.env.PORT) : await findAvailablePort(3000);
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.once("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EADDRINUSE") throw error;
+    console.warn(`Port ${preferredPort} is already in use, looking for another one...`);
+    findAvailablePort(preferredPort + 1).then((fallbackPort) => {
+      server.listen(fallbackPort, () => {
+        console.log(`Server running on http://localhost:${fallbackPort}/`);
+      });
+    }, console.error);
+  });
+
+  server.listen(preferredPort, () => {
+    console.log(`Server running on http://localhost:${preferredPort}/`);
   });
 }
 

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
-  ArrowRight, ChevronDown, ClipboardList, Home as HomeIcon, Menu as MenuIcon, Minus, Moon, Plus,
+  ArrowRight, ClipboardList, Home as HomeIcon, Menu as MenuIcon, Minus, Moon, Plus,
   Search, ShieldCheck, ShoppingBag, Star, Sun, UtensilsCrossed,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,15 @@ export function PremiumTemplate(s: Storefront) {
   const [search, setSearch] = useState("");
   const [mobileCategoriesOpen, setMobileCategoriesOpen] = useState(false);
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (dismissed) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [dismissed]);
 
   const brand = company.primaryColor || "#c9a15a";
 
@@ -35,6 +44,34 @@ export function PremiumTemplate(s: Storefront) {
   }, [s.visibleMenu, search]);
 
   return <div id="top" className="min-h-screen bg-[#faf7f2] text-[#29251f] dark:bg-[#161009] dark:text-[#f2e9dc]">
+    {/* Cover gate — first impression before the menu is revealed */}
+    {!dismissed && (
+      <div
+        className={`cover-stage ${opening ? "is-dismissing" : ""} flex-col px-6 text-center text-white`}
+        style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,.68), rgba(0,0,0,.55), #161009), ${company.heroImageUrl ? `url(${company.heroImageUrl})` : `radial-gradient(circle at 50% 30%, ${brand}33, #100b07 70%)`}`, backgroundSize: "cover", backgroundPosition: "center" }}
+        onTransitionEnd={(event) => { if (event.propertyName === "opacity" && event.target === event.currentTarget) setDismissed(true); }}
+      >
+        <div className="flex max-w-xl flex-col items-center">
+          {company.logoUrl
+            ? <img src={company.logoUrl} alt={company.name} className="h-20 w-20 rounded-full border-2 object-cover shadow-2xl" style={{ borderColor: `${brand}88` }} />
+            : <div className="flex h-20 w-20 items-center justify-center rounded-full border-2" style={{ borderColor: `${brand}88` }}><UtensilsCrossed className="h-8 w-8" /></div>}
+          <h1 className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-5xl">{company.name}</h1>
+          <div className="mt-3 h-px w-16" style={{ backgroundColor: brand }} />
+          <p className="mt-3 text-xs font-semibold uppercase tracking-[0.35em]" style={{ color: brand }}>{company.tagline || "culinária autoral"}</p>
+          <p className="mx-auto mt-6 max-w-md text-[15px] leading-7 text-white/75">Ingredientes selecionados, preparo cuidadoso e uma experiência que vale a espera.</p>
+          <button onClick={() => setOpening(true)} className="cover-cta mt-8 flex h-12 items-center gap-2 rounded-full px-8 font-semibold text-[#211a13] shadow-lg" style={{ backgroundColor: brand }}>
+            Ver cardápio <ArrowRight className="h-4 w-4" />
+          </button>
+          <div className="mt-10 grid grid-cols-3 gap-6 border-t border-white/15 pt-6 text-xs text-white/70">
+            <span>Ingredientes frescos</span>
+            <span>Preparo artesanal</span>
+            <span>Entrega rápida</span>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <div className={`menu-reveal ${opening ? "" : "is-hidden"}`}>
     {/* Header */}
     <header className={`sticky top-0 z-30 border-b ${BORDER} bg-[#faf7f2]/90 backdrop-blur-xl dark:bg-[#161009]/90`}>
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-4 lg:px-8">
@@ -54,35 +91,6 @@ export function PremiumTemplate(s: Storefront) {
         </div>
       </div>
     </header>
-
-    {/* Hero */}
-    <section className="relative flex min-h-[78vh] flex-col items-center justify-center overflow-hidden px-6 py-20 text-center text-white sm:min-h-[85vh]">
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: company.heroImageUrl ? `url(${company.heroImageUrl})` : `radial-gradient(circle at 50% 30%, ${brand}22, #100b07 70%)` }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-[#161009]" />
-      <div className="relative z-10 flex max-w-xl flex-col items-center">
-        {company.logoUrl
-          ? <img src={company.logoUrl} alt={company.name} className="h-20 w-20 rounded-full border-2 object-cover shadow-2xl" style={{ borderColor: `${brand}88` }} />
-          : <div className="flex h-20 w-20 items-center justify-center rounded-full border-2" style={{ borderColor: `${brand}88` }}><UtensilsCrossed className="h-8 w-8" /></div>}
-        <h1 className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-5xl">{company.name}</h1>
-        <div className="mt-3 h-px w-16" style={{ backgroundColor: brand }} />
-        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.35em]" style={{ color: brand }}>{company.tagline || "culinária autoral"}</p>
-        <p className="mx-auto mt-6 max-w-md text-[15px] leading-7 text-white/75">Ingredientes selecionados, preparo cuidadoso e uma experiência que vale a espera.</p>
-        <a href="#cardapio">
-          <Button size="lg" className="mt-8 h-12 rounded-full px-8 font-semibold text-[#211a13] shadow-lg" style={{ backgroundColor: brand }}>
-            Ver cardápio <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </a>
-        <div className="mt-10 grid grid-cols-3 gap-6 border-t border-white/15 pt-6 text-xs text-white/70">
-          <span>Ingredientes frescos</span>
-          <span>Preparo artesanal</span>
-          <span>Entrega rápida</span>
-        </div>
-      </div>
-      <a href="#cardapio" className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2 text-white/60"><ChevronDown className="h-6 w-6 animate-bounce" /></a>
-    </section>
 
     {/* Menu */}
     <section id="cardapio" className="mx-auto max-w-7xl scroll-mt-16 px-4 py-10 lg:px-8">
@@ -229,6 +237,7 @@ export function PremiumTemplate(s: Storefront) {
       </button>
     </nav>
     <div className="h-16 lg:hidden" />
+    </div>
 
     <StorefrontCartCheckout {...s} />
   </div>;
