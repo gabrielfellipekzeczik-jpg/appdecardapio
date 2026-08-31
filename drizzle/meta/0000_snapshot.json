@@ -1,5 +1,5 @@
 {
-  "id": "6a915331-c99a-4768-ae90-39dc3ee84c5e",
+  "id": "eb8dea43-d68c-4688-90ef-08ee68db978a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -994,7 +994,8 @@
       "schema": "public",
       "values": [
         "classic",
-        "modern"
+        "modern",
+        "cover"
       ]
     },
     "public.user_role": {

@@ -1,7 +1,7 @@
 import { boolean, index, integer, numeric, pgEnum, pgTable, serial, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const companyStatusEnum = pgEnum("company_status", ["active", "suspended"]);
-export const storefrontTemplateEnum = pgEnum("storefront_template", ["classic", "modern"]);
+export const storefrontTemplateEnum = pgEnum("storefront_template", ["classic", "modern", "cover"]);
 
 /** One row per tenant restaurant/marmitaria on the platform. */
 export const companies = pgTable("companies", {

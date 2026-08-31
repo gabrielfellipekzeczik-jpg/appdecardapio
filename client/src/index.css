@@ -34,4 +34,18 @@ button:active { transform: scale(.98); }
 .order-icon { display:flex; height:38px; width:38px; align-items:center; justify-content:center; border-radius:12px; background:#fff0d7; color:#a05c32; }
 .order-icon.ready { background:#e2f1e7; color:#347052; }
 @media (max-width: 640px) { .hero-photo-wrap { min-height:380px; } .hero-photo { height:330px; } .hero-note { bottom:20px; left:2px; } }
+
+/* Cover template: menu-cover-opens intro. Plain 2D transform/opacity
+   transitions only (no CSS @keyframes) — keeps the effect resilient across
+   engines and trivially inspectable/testable via computed style. */
+.cover-stage { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; background:radial-gradient(circle at 50% 18%, rgba(0,0,0,.18), rgba(0,0,0,.6)); opacity:1; transition:opacity .5s ease .55s; }
+.cover-stage.is-dismissing { opacity:0; }
+.cover-panel { position:relative; width:min(90vw,440px); aspect-ratio:3/4.3; max-height:88vh; border-radius:24px; overflow:hidden; transform-origin:62% 50%; transition:transform .85s cubic-bezier(.65,0,.35,1), opacity .6s ease .25s; box-shadow:0 40px 90px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.08) inset; }
+.cover-panel.is-opening { transform:scale(.82) rotate(-7deg) translateX(-16%); opacity:0; }
+.cover-spine { position:absolute; left:0; top:0; bottom:0; width:16px; background:linear-gradient(90deg, rgba(0,0,0,.4), rgba(0,0,0,0)); pointer-events:none; }
+.cover-cta { animation:cover-pulse 2.6s ease-in-out infinite; }
+.menu-reveal { opacity:1; transform:none; transition:opacity .7s ease .3s, transform .7s cubic-bezier(.22,1,.36,1) .3s; }
+.menu-reveal.is-hidden { opacity:0; transform:translateY(14px) scale(.98); transition:none; }
+@keyframes cover-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,255,255,.4); } 50% { box-shadow:0 0 0 12px rgba(255,255,255,0); } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }

@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { extractDominantColor } from "@/lib/color";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 
 const TEMPLATE_OPTIONS = [
+  { id: "cover" as const, name: "Capa de cardápio", description: "Capa com sua logo que abre com uma animação, revelando o cardápio por dentro." },
   { id: "classic" as const, name: "Clássico", description: "Editorial, aconchegante — fotos grandes e seções de história." },
   { id: "modern" as const, name: "Moderno", description: "Minimalista, direto ao ponto — lista compacta e cor de marca em destaque." },
 ];
@@ -46,8 +48,10 @@ export function AppearancePanel() {
       const { error: uploadError } = await supabase.storage.from("logos").upload(path, file, { upsert: true, cacheControl: "3600" });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("logos").getPublicUrl(path);
-      await updateMutation.mutateAsync({ logoUrl: data.publicUrl });
-      toast.success("Logo atualizada.");
+      const extractedColor = await extractDominantColor(data.publicUrl);
+      await updateMutation.mutateAsync({ logoUrl: data.publicUrl, ...(extractedColor ? { primaryColor: extractedColor } : {}) });
+      if (extractedColor) setPrimaryColor(extractedColor);
+      toast.success(extractedColor ? "Logo atualizada — cor da capa ajustada pra combinar." : "Logo atualizada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível enviar a logo. Verifique se o bucket \"logos\" existe no Supabase Storage.");
     } finally {

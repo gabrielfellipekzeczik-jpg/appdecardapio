@@ -4,8 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useStorefront } from "@/lib/useStorefront";
 import { ClassicTemplate } from "@/storefront-templates/ClassicTemplate";
 import { ModernTemplate } from "@/storefront-templates/ModernTemplate";
+import { CoverTemplate } from "@/storefront-templates/CoverTemplate";
 
-const TEMPLATES = { classic: ClassicTemplate, modern: ModernTemplate };
+const TEMPLATES = { classic: ClassicTemplate, modern: ModernTemplate, cover: CoverTemplate };
 
 export default function Home() {
   const { slug = "" } = useParams<{ slug: string }>();

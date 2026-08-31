@@ -49,7 +49,7 @@ export async function setCompanyStatus(companyId: number, status: "active" | "su
   await db.update(companies).set({ status }).where(eq(companies.id, companyId));
 }
 
-export async function updateCompanyBranding(companyId: number, input: { name?: string; tagline?: string; logoUrl?: string; primaryColor?: string; templateId?: "classic" | "modern"; pickupAddress?: string }) {
+export async function updateCompanyBranding(companyId: number, input: { name?: string; tagline?: string; logoUrl?: string; primaryColor?: string; templateId?: "classic" | "modern" | "cover"; pickupAddress?: string }) {
   const db = await getDb();
   if (!db) return;
   await db.update(companies).set(input).where(eq(companies.id, companyId));
