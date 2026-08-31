@@ -19,7 +19,7 @@ describe("delivery integration contracts", () => {
   });
 
   it("builds a tracking message without sending it", () => {
-    expect(buildTrackingMessage("whatsapp", "https://example.com/rastreio/123")).toContain("https://example.com/rastreio/123");
-    expect(buildTrackingMessage("sms", "https://example.com/rastreio/123")).toContain("SMS");
+    expect(buildTrackingMessage("whatsapp", "Casa na Marmita", "https://example.com/rastreio/123")).toContain("https://example.com/rastreio/123");
+    expect(buildTrackingMessage("sms", "Casa na Marmita", "https://example.com/rastreio/123")).toContain("SMS");
   });
 });

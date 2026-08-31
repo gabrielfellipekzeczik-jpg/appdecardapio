@@ -17,14 +17,21 @@ export function isMercadoPagoConfigured(): boolean {
   return Boolean(ENV.mpClientId && ENV.mpClientSecret && ENV.mpRedirectUri);
 }
 
-export function buildAuthorizeUrl(state: string): string {
+/** `state` carries the connecting company's id (base64) so the OAuth callback knows who to save credentials for. */
+export function buildAuthorizeUrl(companyId: number): string {
   const url = new URL(MP_AUTHORIZE_URL);
   url.searchParams.set("client_id", ENV.mpClientId);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("platform_id", "mp");
   url.searchParams.set("redirect_uri", ENV.mpRedirectUri);
-  url.searchParams.set("state", state);
+  url.searchParams.set("state", Buffer.from(JSON.stringify({ companyId, nonce: Math.random().toString(36).slice(2) })).toString("base64"));
   return url.toString();
+}
+
+export function decodeState(state: string): { companyId: number } {
+  const parsed = JSON.parse(Buffer.from(state, "base64").toString("utf-8")) as { companyId: number };
+  if (!Number.isInteger(parsed.companyId)) throw new Error("Invalid OAuth state");
+  return parsed;
 }
 
 export async function exchangeCodeForCredentials(code: string): Promise<MercadoPagoCredentials> {
@@ -82,16 +89,17 @@ async function refreshCredentials(refreshToken: string): Promise<MercadoPagoCred
   };
 }
 
-/** Reads the connected seller's credentials, transparently refreshing (and persisting) if MP rejects the access token. */
-export async function getConnectedCredentials(): Promise<MercadoPagoCredentials | undefined> {
-  return getIntegrationCredentials<MercadoPagoCredentials>("mercadopago");
+/** Reads the connected seller's credentials for a company, transparently refreshing (and persisting) if MP rejects the access token. */
+export async function getConnectedCredentials(companyId: number): Promise<MercadoPagoCredentials | undefined> {
+  return getIntegrationCredentials<MercadoPagoCredentials>(companyId, "mercadopago");
 }
 
-export async function saveCredentials(credentials: MercadoPagoCredentials) {
-  await saveIntegrationCredentials("mercadopago", credentials, { publicKey: credentials.publicKey, userId: credentials.userId, liveMode: credentials.liveMode });
+export async function saveCredentials(companyId: number, credentials: MercadoPagoCredentials) {
+  await saveIntegrationCredentials(companyId, "mercadopago", credentials, { publicKey: credentials.publicKey, userId: credentials.userId, liveMode: credentials.liveMode });
 }
 
 export type CreatePaymentInput = {
+  companyId: number;
   orderId: number;
   transactionAmount: number;
   description: string;
@@ -104,16 +112,25 @@ export type CreatePaymentInput = {
 
 /**
  * Creates a payment via Checkout API using the connected seller's access
- * token. Called from the `payments.create` tRPC mutation with the payload
- * assembled by the Payment Brick on the client (card token / Pix selection).
+ * token, retaining the platform's cut via `application_fee` (Mercado Pago's
+ * marketplace split — https://www.mercadopago.com.br/developers/en/docs/checkout-api-payments/how-tos/integrate-marketplace).
+ * The fee amount accrues to the OAuth application's own account (the
+ * platform owner's Mercado Pago account); the remainder goes to the seller.
  * On a 401 (expired token) it refreshes once, persists the new pair, and retries.
  */
+export function computeApplicationFee(transactionAmount: number): number {
+  return Math.round(transactionAmount * (ENV.platformFeePercent / 100) * 100) / 100;
+}
+
 export async function createPayment(input: CreatePaymentInput) {
-  const credentials = await getConnectedCredentials();
+  const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
+
+  const applicationFee = computeApplicationFee(input.transactionAmount);
 
   const body = {
     transaction_amount: input.transactionAmount,
+    application_fee: applicationFee,
     description: input.description,
     payment_method_id: input.paymentMethodId,
     token: input.token,
@@ -121,7 +138,7 @@ export async function createPayment(input: CreatePaymentInput) {
     issuer_id: input.issuerId,
     payer: { email: input.payer.email, first_name: input.payer.firstName },
     external_reference: String(input.orderId),
-    notification_url: ENV.mpRedirectUri ? new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString() : undefined,
+    notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : undefined,
   };
 
   const attempt = async (accessToken: string) => fetch(MP_PAYMENTS_URL, {
@@ -137,7 +154,7 @@ export async function createPayment(input: CreatePaymentInput) {
   let response = await attempt(credentials.accessToken);
   if (response.status === 401) {
     const refreshed = await refreshCredentials(credentials.refreshToken);
-    await saveCredentials(refreshed);
+    await saveCredentials(input.companyId, refreshed);
     response = await attempt(refreshed.accessToken);
   }
 
@@ -146,12 +163,13 @@ export async function createPayment(input: CreatePaymentInput) {
     throw new Error(`Mercado Pago payment creation failed (${response.status}): ${detail}`);
   }
 
-  return (await response.json()) as { id: number; status: string; status_detail: string; point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } } };
+  const payment = (await response.json()) as { id: number; status: string; status_detail: string; point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } } };
+  return { ...payment, applicationFee };
 }
 
 /** Fetches a payment's current status by id (used by the webhook handler). */
-export async function getPaymentStatus(paymentId: string) {
-  const credentials = await getConnectedCredentials();
+export async function getPaymentStatus(companyId: number, paymentId: string) {
+  const credentials = await getConnectedCredentials(companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
   const response = await fetch(`${MP_PAYMENTS_URL}/${paymentId}`, {
     headers: { authorization: `Bearer ${credentials.accessToken}` },

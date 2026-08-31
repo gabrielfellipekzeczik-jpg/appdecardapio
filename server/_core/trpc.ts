@@ -54,3 +54,19 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+
+/**
+ * For company-scoped operations (menu, orders, inventory, finance,
+ * integrations). Derives `companyId` from the authenticated admin's own
+ * record — never from client input — so one company's admin can never read
+ * or write another company's data by crafting a request.
+ */
+export const companyAdminProcedure = adminProcedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.user?.companyId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Conta não está vinculada a nenhuma empresa." });
+    }
+    return next({ ctx: { ...ctx, companyId: ctx.user.companyId } });
+  }),
+);

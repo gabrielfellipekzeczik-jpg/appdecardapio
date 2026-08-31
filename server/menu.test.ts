@@ -7,10 +7,9 @@ function publicContext(): TrpcContext {
 }
 
 describe("public menu contract", () => {
-  it("returns an array without requiring authentication", async () => {
+  it("rejects an unknown company instead of leaking data", async () => {
     const caller = appRouter.createCaller(publicContext());
-    const result = await caller.menu.list();
-    expect(Array.isArray(result)).toBe(true);
+    await expect(caller.menu.list({ companySlug: "empresa-inexistente" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("rejects admin dashboard summary for anonymous visitors", async () => {

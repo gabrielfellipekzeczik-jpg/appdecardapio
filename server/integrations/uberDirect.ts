@@ -1,4 +1,4 @@
-import { ENV } from "../_core/env";
+import { getIntegrationCredentials } from "../db";
 
 // Reference: https://developer.uber.com/docs/deliveries/overview
 // Verify these paths/scopes against the live reference once real sandbox
@@ -6,22 +6,20 @@ import { ENV } from "../_core/env";
 const UBER_TOKEN_URL = "https://auth.uber.com/oauth/v2/token";
 const UBER_API_BASE = "https://api.uber.com/v1";
 
-let cachedToken: { accessToken: string; expiresAt: number } | null = null;
+export type UberDirectCredentials = { clientId: string; clientSecret: string; customerId: string };
 
-export function isUberDirectConfigured(): boolean {
-  return Boolean(ENV.uberDirectClientId && ENV.uberDirectClientSecret && ENV.uberDirectCustomerId && ENV.pickupAddress);
-}
+const tokenCache = new Map<number, { accessToken: string; expiresAt: number }>();
 
-async function getAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) {
-    return cachedToken.accessToken;
-  }
+async function getAccessToken(companyId: number, credentials: UberDirectCredentials): Promise<string> {
+  const cached = tokenCache.get(companyId);
+  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.accessToken;
+
   const response = await fetch(UBER_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: ENV.uberDirectClientId,
-      client_secret: ENV.uberDirectClientSecret,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
       grant_type: "client_credentials",
       scope: "eats.deliveries",
     }),
@@ -31,11 +29,14 @@ async function getAccessToken(): Promise<string> {
     throw new Error(`Uber Direct auth failed (${response.status}): ${detail}`);
   }
   const data = (await response.json()) as { access_token: string; expires_in: number };
-  cachedToken = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
-  return cachedToken.accessToken;
+  tokenCache.set(companyId, { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
+  return data.access_token;
 }
 
 export type CreateDeliveryInput = {
+  companyId: number;
+  companyName: string;
+  pickupAddress: string;
   orderId: number;
   dropoffAddress: string;
   dropoffName: string;
@@ -43,23 +44,22 @@ export type CreateDeliveryInput = {
   manifestItems: Array<{ name: string; quantity: number }>;
 };
 
-export type UberDeliveryResult = {
-  deliveryId: string;
-  trackingUrl: string;
-  status: string;
-};
+export type DeliveryResult = { deliveryId: string; trackingUrl: string; status: string };
 
 /** Requests an on-demand courier for a ready order. Called when an order moves to `ready`. */
-export async function createDelivery(input: CreateDeliveryInput): Promise<UberDeliveryResult> {
-  if (!isUberDirectConfigured()) throw new Error("Uber Direct is not configured");
-  const token = await getAccessToken();
+export async function createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
+  const credentials = await getIntegrationCredentials<UberDirectCredentials>(input.companyId, "uber_direct");
+  if (!credentials) throw new Error("Uber Direct is not configured for this company");
+  if (!input.pickupAddress) throw new Error("Company pickup address is not configured");
 
-  const response = await fetch(`${UBER_API_BASE}/customers/${ENV.uberDirectCustomerId}/deliveries`, {
+  const token = await getAccessToken(input.companyId, credentials);
+
+  const response = await fetch(`${UBER_API_BASE}/customers/${credentials.customerId}/deliveries`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      pickup_address: ENV.pickupAddress,
-      pickup_name: "Casa na Marmita",
+      pickup_address: input.pickupAddress,
+      pickup_name: input.companyName,
       dropoff_address: input.dropoffAddress,
       dropoff_name: input.dropoffName,
       dropoff_phone_number: input.dropoffPhone,

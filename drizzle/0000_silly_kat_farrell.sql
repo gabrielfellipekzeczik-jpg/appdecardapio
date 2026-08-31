@@ -1,20 +1,36 @@
-CREATE TYPE "public"."integration_provider" AS ENUM('mercadopago', 'uber_direct', 'messaging');--> statement-breakpoint
+CREATE TYPE "public"."company_status" AS ENUM('active', 'suspended');--> statement-breakpoint
+CREATE TYPE "public"."integration_provider" AS ENUM('mercadopago', 'uber_direct', 'lalamove', 'own_courier', 'messaging');--> statement-breakpoint
 CREATE TYPE "public"."inventory_movement_type" AS ENUM('in', 'out', 'adjustment');--> statement-breakpoint
 CREATE TYPE "public"."order_status" AS ENUM('received', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."payment_status" AS ENUM('pending', 'approved', 'rejected', 'refunded');--> statement-breakpoint
 CREATE TYPE "public"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
+CREATE TABLE "companies" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"slug" varchar(60) NOT NULL,
+	"name" varchar(160) NOT NULL,
+	"tagline" text,
+	"logoUrl" text,
+	"primaryColor" varchar(20),
+	"pickupAddress" text,
+	"status" "company_status" DEFAULT 'active' NOT NULL,
+	"createdAt" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "companies_slug_unique" UNIQUE("slug")
+);
+--> statement-breakpoint
 CREATE TABLE "customers" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"name" varchar(160) NOT NULL,
 	"phone" varchar(30) NOT NULL,
 	"address" text,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
 	"updatedAt" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "customers_phone_unique" UNIQUE("phone")
+	CONSTRAINT "customers_company_phone_unique" UNIQUE("companyId","phone")
 );
 --> statement-breakpoint
 CREATE TABLE "expenses" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"description" varchar(200) NOT NULL,
 	"category" varchar(80) NOT NULL,
 	"amount" numeric(10, 2) NOT NULL,
@@ -25,17 +41,19 @@ CREATE TABLE "expenses" (
 --> statement-breakpoint
 CREATE TABLE "integration_settings" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"provider" "integration_provider" NOT NULL,
 	"connected" boolean DEFAULT false NOT NULL,
 	"credentials" text,
 	"metadata" text,
 	"connectedAt" timestamp,
 	"updatedAt" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "integration_settings_provider_unique" UNIQUE("provider")
+	CONSTRAINT "integration_settings_company_provider_unique" UNIQUE("companyId","provider")
 );
 --> statement-breakpoint
 CREATE TABLE "inventory_items" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"name" varchar(160) NOT NULL,
 	"unit" varchar(20) NOT NULL,
 	"currentQuantity" numeric(12, 3) DEFAULT '0' NOT NULL,
@@ -56,6 +74,7 @@ CREATE TABLE "inventory_movements" (
 --> statement-breakpoint
 CREATE TABLE "menu_categories" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"name" varchar(120) NOT NULL,
 	"description" text,
 	"sortOrder" integer DEFAULT 0 NOT NULL,
@@ -65,6 +84,7 @@ CREATE TABLE "menu_categories" (
 --> statement-breakpoint
 CREATE TABLE "menu_items" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"categoryId" integer NOT NULL,
 	"name" varchar(160) NOT NULL,
 	"description" text,
@@ -88,6 +108,7 @@ CREATE TABLE "order_items" (
 --> statement-breakpoint
 CREATE TABLE "orders" (
 	"id" serial PRIMARY KEY NOT NULL,
+	"companyId" integer NOT NULL,
 	"customerId" integer NOT NULL,
 	"status" "order_status" DEFAULT 'received' NOT NULL,
 	"paymentStatus" "payment_status" DEFAULT 'pending' NOT NULL,
@@ -95,6 +116,7 @@ CREATE TABLE "orders" (
 	"subtotal" numeric(10, 2) NOT NULL,
 	"deliveryFee" numeric(10, 2) DEFAULT '0' NOT NULL,
 	"total" numeric(10, 2) NOT NULL,
+	"platformFeeAmount" numeric(10, 2),
 	"notes" text,
 	"trackingUrl" text,
 	"externalPaymentId" varchar(120),
@@ -106,6 +128,7 @@ CREATE TABLE "orders" (
 CREATE TABLE "users" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"supabaseUserId" uuid NOT NULL,
+	"companyId" integer,
 	"name" text,
 	"email" varchar(320),
 	"loginMethod" varchar(64),
@@ -116,6 +139,11 @@ CREATE TABLE "users" (
 	CONSTRAINT "users_supabaseUserId_unique" UNIQUE("supabaseUserId")
 );
 --> statement-breakpoint
+CREATE INDEX "expenses_company_idx" ON "expenses" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "inventory_items_company_idx" ON "inventory_items" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "menu_categories_company_idx" ON "menu_categories" USING btree ("companyId");--> statement-breakpoint
 CREATE INDEX "menu_items_category_idx" ON "menu_items" USING btree ("categoryId");--> statement-breakpoint
+CREATE INDEX "menu_items_company_idx" ON "menu_items" USING btree ("companyId");--> statement-breakpoint
 CREATE INDEX "orders_status_idx" ON "orders" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "orders_created_idx" ON "orders" USING btree ("createdAt");
+CREATE INDEX "orders_created_idx" ON "orders" USING btree ("createdAt");--> statement-breakpoint
+CREATE INDEX "orders_company_idx" ON "orders" USING btree ("companyId");

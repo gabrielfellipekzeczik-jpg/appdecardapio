@@ -1,4 +1,7 @@
 import "dotenv/config";
+// `pnpm dev` runs this directly (no cross-env wrapper) so local dev defaults
+// to development mode; the `start` script sets NODE_ENV=production explicitly.
+if (!process.env.NODE_ENV) process.env.NODE_ENV = "development";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -53,12 +56,11 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+  // An explicit PORT (set by the host: Vercel, a launch config, etc.) is
+  // authoritative — bind it directly rather than scanning past it, since a
+  // reverse proxy may already be listening in front of it. Only scan for a
+  // free port as a local convenience when nothing external assigned one.
+  const port = process.env.PORT ? parseInt(process.env.PORT) : await findAvailablePort(3000);
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

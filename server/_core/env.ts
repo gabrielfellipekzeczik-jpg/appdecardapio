@@ -10,12 +10,14 @@ export const ENV = {
 
   integrationsEncryptionKey: process.env.INTEGRATIONS_ENCRYPTION_KEY ?? "",
 
+  // Platform-level Mercado Pago OAuth application (one app registered by the
+  // platform owner). Each company connects *their own* seller account through
+  // it; the platform fee is retained automatically via `application_fee`.
   mpClientId: process.env.MP_CLIENT_ID ?? "",
   mpClientSecret: process.env.MP_CLIENT_SECRET ?? "",
   mpRedirectUri: process.env.MP_REDIRECT_URI ?? "",
+  get platformFeePercent() { return Number(process.env.PLATFORM_FEE_PERCENT ?? "5"); },
 
-  uberDirectClientId: process.env.UBER_DIRECT_CLIENT_ID ?? "",
-  uberDirectClientSecret: process.env.UBER_DIRECT_CLIENT_SECRET ?? "",
-  uberDirectCustomerId: process.env.UBER_DIRECT_CUSTOMER_ID ?? "",
-  pickupAddress: process.env.PICKUP_ADDRESS ?? "",
+  // Delivery provider credentials (Uber Direct, Lalamove) are per-company —
+  // see `server/db.ts` `getIntegrationCredentials`, not env vars.
 };

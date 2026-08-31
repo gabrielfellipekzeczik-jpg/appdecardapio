@@ -4,11 +4,12 @@ import type { TrpcContext } from "./_core/context";
 
 type Role = "admin" | "user";
 
-function createContext(role: Role): TrpcContext {
+function createContext(role: Role, companyId: number | null = role === "admin" ? 1 : null): TrpcContext {
   return {
     user: {
       id: role === "admin" ? 1 : 2,
       supabaseUserId: `${role}-tester`,
+      companyId,
       email: `${role}@example.com`,
       name: role === "admin" ? "Operador" : "Cliente",
       loginMethod: "test",
@@ -23,14 +24,14 @@ function createContext(role: Role): TrpcContext {
 }
 
 describe("orders.advanceStatus", () => {
-  it("permite ao admin avançar um pedido e retorna o status persistido ou local", async () => {
+  it("permite ao admin da empresa avançar um pedido e retorna o status persistido ou local", async () => {
     const caller = appRouter.createCaller(createContext("admin"));
     const result = await caller.orders.advanceStatus({ id: 1048, status: "preparing" });
     expect(result).toMatchObject({ orderId: 1048, status: "preparing" });
     expect(typeof result.persisted).toBe("boolean");
   });
 
-  it("permite ao admin consultar os módulos operacionais", async () => {
+  it("permite ao admin consultar os módulos operacionais da própria empresa", async () => {
     const caller = appRouter.createCaller(createContext("admin"));
     await expect(caller.adminMenu.list()).resolves.toBeInstanceOf(Array);
     await expect(caller.inventory.list()).resolves.toBeInstanceOf(Array);
@@ -45,26 +46,19 @@ describe("orders.advanceStatus", () => {
     await expect(caller.finance.recentExpenses({ limit: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("dispara o despacho automático quando o pedido fica pronto", async () => {
-    const caller = appRouter.createCaller(createContext("admin"));
-    const result = await caller.orders.advanceStatus({ id: 1049, status: "ready" });
-    expect(result).toMatchObject({ orderId: 1049, status: "ready" });
-    // Sem credenciais do Uber Direct no ambiente de teste, o despacho fica indisponível — nunca finge sucesso.
-    expect(result.delivery).toMatchObject({ available: false });
+  it("bloqueia admin ainda sem empresa vinculada (isolamento por companyId)", async () => {
+    // role=admin mas companyId=null — não existe cenário em que o companyId
+    // venha do cliente, então uma conta sem empresa nunca enxerga dado de negócio.
+    const caller = appRouter.createCaller(createContext("admin", null));
+    await expect(caller.adminMenu.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.orders.recent()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("restringe integrações ao proprietário", async () => {
-    const operationalAdmin = appRouter.createCaller(createContext("admin"));
-    await expect(operationalAdmin.integrations.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
-
-    const ownerContext = createContext("admin");
-    ownerContext.user!.email = "owner-test@example.com";
-    process.env.OWNER_EMAIL = "owner-test@example.com";
-    const owner = appRouter.createCaller(ownerContext);
-    await expect(owner.integrations.status()).resolves.toMatchObject({
-      mercadopago: expect.objectContaining({ connected: expect.any(Boolean) }),
-      uberDirect: expect.objectContaining({ connected: expect.any(Boolean) }),
-      ninetyNineDelivery: expect.objectContaining({ connected: false }),
-    });
+  it("nunca tenta despachar entrega quando a atualização do pedido não foi persistida", async () => {
+    // Sem DATABASE_URL no ambiente de teste, advanceOrderStatus sempre retorna
+    // persisted:false — o router deve pular o despacho em vez de fingir sucesso.
+    const caller = appRouter.createCaller(createContext("admin"));
+    const result = await caller.orders.advanceStatus({ id: 1049, status: "ready" });
+    expect(result).toMatchObject({ orderId: 1049, status: "ready", persisted: false, delivery: null });
   });
 });

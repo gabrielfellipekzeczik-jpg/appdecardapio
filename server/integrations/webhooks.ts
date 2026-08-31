@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
-import { findOrderByExternalPaymentId, setOrderPayment } from "../db";
-import { buildAuthorizeUrl, exchangeCodeForCredentials, getPaymentStatus, isMercadoPagoConfigured, saveCredentials } from "./mercadoPago";
+import { getCompanyById } from "../companies";
+import { findOrderByExternalPaymentId, saveIntegrationCredentials, setOrderPayment } from "../db";
+import { decodeState, exchangeCodeForCredentials, getPaymentStatus } from "./mercadoPago";
 
 const MP_STATUS_MAP: Record<string, "pending" | "approved" | "rejected" | "refunded"> = {
   pending: "pending",
@@ -14,44 +15,50 @@ const MP_STATUS_MAP: Record<string, "pending" | "approved" | "rejected" | "refun
 };
 
 export function registerWebhooks(app: Express) {
-  // Admin clicks "Conectar com Mercado Pago" in Super Admin, which links here.
-  app.get("/api/mercadopago/connect", (req: Request, res: Response) => {
-    if (!isMercadoPagoConfigured()) {
-      res.status(500).send("Mercado Pago não está configurado (MP_CLIENT_ID/MP_CLIENT_SECRET/MP_REDIRECT_URI ausentes).");
-      return;
-    }
-    const state = Math.random().toString(36).slice(2);
-    res.redirect(302, buildAuthorizeUrl(state));
-  });
-
+  // MP redirects the browser here after the company admin authorizes on
+  // Mercado Pago's own site; `state` was minted by `integrations.mercadoPagoConnectUrl`.
   app.get("/api/mercadopago/oauth-callback", async (req: Request, res: Response) => {
     const code = typeof req.query.code === "string" ? req.query.code : undefined;
-    if (!code) {
+    const state = typeof req.query.state === "string" ? req.query.state : undefined;
+    if (!code || !state) {
       res.status(400).send("Código de autorização ausente.");
       return;
     }
+    let companyId: number;
+    try {
+      ({ companyId } = decodeState(state));
+    } catch {
+      res.status(400).send("Estado da autorização inválido.");
+      return;
+    }
+    const company = await getCompanyById(companyId);
+    const redirectBase = company ? `/${company.slug}/admin/integracoes` : "/admin-login";
     try {
       const credentials = await exchangeCodeForCredentials(code);
-      await saveCredentials(credentials);
-      res.redirect(302, "/super-admin?mercadopago=connected");
+      await saveIntegrationCredentials(companyId, "mercadopago", credentials, { publicKey: credentials.publicKey, userId: credentials.userId, liveMode: credentials.liveMode });
+      res.redirect(302, `${redirectBase}?mercadopago=connected`);
     } catch (error) {
       console.error("[MercadoPago] OAuth callback failed:", error);
-      res.redirect(302, "/super-admin?mercadopago=error");
+      res.redirect(302, `${redirectBase}?mercadopago=error`);
     }
   });
 
-  // Mercado Pago notifies here on payment status changes. We treat the
-  // notification only as a pointer to re-fetch authoritative status from
-  // the Payments API — never trust status fields in the webhook body itself.
+  // Mercado Pago notifies here on payment status changes. `companyId` was
+  // attached to the notification_url at payment creation time (each company
+  // has its own connected seller account, so we need it to know whose
+  // credentials to use). We treat the notification only as a pointer to
+  // re-fetch authoritative status from the Payments API — never trust status
+  // fields in the webhook body itself.
   app.post("/api/webhooks/mercadopago", async (req: Request, res: Response) => {
     res.status(200).send("ok"); // ack immediately; MP retries on non-2xx
     try {
+      const companyId = Number(req.query.companyId);
       const paymentId = req.body?.data?.id ?? req.query["data.id"];
-      if (!paymentId) return;
-      const payment = await getPaymentStatus(String(paymentId));
+      if (!companyId || !paymentId) return;
+      const payment = await getPaymentStatus(companyId, String(paymentId));
       const orderId = payment.external_reference ? Number(payment.external_reference) : undefined;
       if (!orderId) return;
-      const order = await findOrderByExternalPaymentId(String(paymentId));
+      const order = await findOrderByExternalPaymentId(companyId, String(paymentId));
       const mappedStatus = MP_STATUS_MAP[payment.status] ?? "pending";
       if (!order || order.paymentStatus !== mappedStatus) {
         await setOrderPayment(orderId, { paymentStatus: mappedStatus, externalPaymentId: String(paymentId) });
@@ -61,12 +68,16 @@ export function registerWebhooks(app: Express) {
     }
   });
 
-  // Uber Direct notifies delivery status changes (courier assigned, picked
-  // up, delivered). Lower stakes than payments, so we apply the payload directly.
-  app.post("/api/webhooks/uber-direct", async (req: Request, res: Response) => {
+  // Uber Direct / Lalamove notify delivery status changes (courier assigned,
+  // picked up, delivered). Lower stakes than payments, so we just log for now
+  // — the tracking URL already lets the customer follow the courier directly.
+  app.post("/api/webhooks/uber-direct", (req: Request, res: Response) => {
     res.status(200).send("ok");
     console.log("[UberDirect] Webhook received:", req.body?.status ?? "unknown status");
-    // Delivery status is informational for the kitchen view; the tracking
-    // URL already lets the customer follow the courier directly on Uber's page.
+  });
+
+  app.post("/api/webhooks/lalamove", (req: Request, res: Response) => {
+    res.status(200).send("ok");
+    console.log("[Lalamove] Webhook received:", req.body?.status ?? "unknown status");
   });
 }
