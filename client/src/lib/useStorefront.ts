@@ -13,6 +13,9 @@ export const fallbackMenu = [
   { id: 6, category: "Especiais", name: "Lasanha de vó", description: "Massa artesanal, ragu de panela, bechamel e parmesão gratinado.", price: 30.9, image: "https://images.unsplash.com/photo-1619895092538-128341789043?auto=format&fit=crop&w=900&q=85", tag: "Conforto" },
 ];
 
+/** Used behind the cover/hero when a company hasn't uploaded their own photo yet — a moody restaurant interior reads much more "this is a real place" than a flat color gradient. */
+export const DEFAULT_HERO_IMAGE = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1600&q=80";
+
 export type CartLine = { id: number; qty: number; observation: string };
 export type PaymentMethod = "pix" | "credit_card" | "debit_card";
 export type SavedOrder = LocalOrderHistoryEntry;

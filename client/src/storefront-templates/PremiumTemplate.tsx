@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StorefrontCartCheckout } from "@/components/StorefrontCartCheckout";
 import { useTheme } from "@/contexts/ThemeContext";
-import type { Storefront } from "@/lib/useStorefront";
+import { DEFAULT_HERO_IMAGE, type Storefront } from "@/lib/useStorefront";
 
 const SURFACE = "bg-white dark:bg-[#211a13]";
 const BORDER = "border-[#e9e3d9] dark:border-white/10";
@@ -48,7 +48,7 @@ export function PremiumTemplate(s: Storefront) {
     {!dismissed && (
       <div
         className={`cover-stage ${opening ? "is-dismissing" : ""} flex-col px-6 text-center text-white`}
-        style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,.68), rgba(0,0,0,.55), #161009), ${company.heroImageUrl ? `url(${company.heroImageUrl})` : `radial-gradient(circle at 50% 30%, ${brand}33, #100b07 70%)`}`, backgroundSize: "cover", backgroundPosition: "center" }}
+        style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,.68), rgba(0,0,0,.55), #161009), url(${company.heroImageUrl || DEFAULT_HERO_IMAGE})`, backgroundSize: "cover", backgroundPosition: "center" }}
         onTransitionEnd={(event) => { if (event.propertyName === "opacity" && event.target === event.currentTarget) setDismissed(true); }}
       >
         <div className="flex max-w-xl flex-col items-center">
@@ -225,6 +225,20 @@ export function PremiumTemplate(s: Storefront) {
         </div>
       </SheetContent>
     </Sheet>
+
+    {/* Mobile floating cart bar — mirrors the persistent desktop cart panel */}
+    {s.totalItems > 0 && (
+      <button
+        onClick={() => s.setCartOpen(true)}
+        className="fixed inset-x-4 bottom-[72px] z-30 flex items-center justify-between rounded-2xl px-5 py-3.5 text-white shadow-xl lg:hidden"
+        style={{ backgroundColor: brand }}
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold">
+          <ShoppingBag className="h-4 w-4" /> {s.totalItems} {s.totalItems === 1 ? "item" : "itens"}
+        </span>
+        <span className="text-sm font-bold">R$ {s.total.toFixed(2).replace(".", ",")} · Ver carrinho</span>
+      </button>
+    )}
 
     {/* Mobile bottom tab bar */}
     <nav className={`fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t ${BORDER} bg-[#faf7f2]/95 py-2 backdrop-blur-xl dark:bg-[#161009]/95 lg:hidden`}>
