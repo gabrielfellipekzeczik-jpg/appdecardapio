@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { isOwnerEmail } from "./_core/supabaseAuth";
 import { companyAdminProcedure, publicProcedure, protectedProcedure, router, superAdminProcedure } from "./_core/trpc";
 import { createCompany, getCompanyById, getCompanyBySlug, isSlugAvailableFormat, listCompanies, setCompanyStatus, updateCompanyBranding } from "./companies";
+import { buildDemoCompany, isDemoMode } from "./demoData";
 import { unavailableDeliveryResponse } from "@shared/delivery";
 import {
   advanceOrderStatus, createCustomerOrder, getActiveDeliveryProvider, getDashboardSummary, getOrderById, getIntegrationsStatus,
@@ -15,6 +16,7 @@ import { createDelivery as createUberDelivery } from "./integrations/uberDirect"
 import { createDelivery as createLalamoveDelivery } from "./integrations/lalamove";
 
 async function requireCompanyBySlug(slug: string) {
+  if (isDemoMode()) return buildDemoCompany(slug);
   const company = await getCompanyBySlug(slug);
   if (!company) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa não encontrada." });
   return company;
@@ -27,6 +29,7 @@ export const appRouter = router({
   }),
   company: router({
     bySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
+      if (isDemoMode()) return buildDemoCompany(input.slug);
       const company = await getCompanyBySlug(input.slug);
       return company ?? null;
     }),
