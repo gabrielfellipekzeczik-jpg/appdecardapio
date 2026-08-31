@@ -35,15 +35,14 @@ button:active { transform: scale(.98); }
 .order-icon.ready { background:#e2f1e7; color:#347052; }
 @media (max-width: 640px) { .hero-photo-wrap { min-height:380px; } .hero-photo { height:330px; } .hero-note { bottom:20px; left:2px; } }
 
-/* Cover template: menu-cover-opens intro. Plain 2D transform/opacity
-   transitions only (no CSS @keyframes) — keeps the effect resilient across
-   engines and trivially inspectable/testable via computed style. */
-.cover-stage { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; background:radial-gradient(circle at 50% 18%, rgba(0,0,0,.18), rgba(0,0,0,.6)); opacity:1; transition:opacity .5s ease .55s; overflow:hidden; }
+/* Cover template: the cover swings open on its left edge like a real menu/book
+   cover (rotateY on a hinge), instead of just shrinking away. */
+.cover-stage { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; background:radial-gradient(circle at 50% 18%, rgba(0,0,0,.18), rgba(0,0,0,.6)); opacity:1; transition:opacity .5s ease .75s; overflow:hidden; perspective:2000px; }
 .cover-stage.is-dismissing { opacity:0; }
 .cover-stage::after, .cover-panel::after { content:""; position:absolute; inset:-20%; background:linear-gradient(115deg, transparent 42%, rgba(255,255,255,.28) 50%, transparent 58%); transform:translateX(-140%); pointer-events:none; }
 .cover-stage.is-dismissing::after, .cover-panel.is-opening::after { transform:translateX(140%); transition:transform .9s cubic-bezier(.4,0,.2,1); }
-.cover-panel { position:relative; width:min(90vw,440px); aspect-ratio:3/4.3; max-height:88vh; border-radius:24px; overflow:hidden; transform-origin:62% 50%; transition:transform .85s cubic-bezier(.65,0,.35,1), opacity .6s ease .25s; box-shadow:0 40px 90px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.08) inset; }
-.cover-panel.is-opening { transform:scale(.82) rotate(-7deg) translateX(-16%); opacity:0; }
+.cover-panel { position:relative; width:min(92vw,560px); aspect-ratio:3/4; max-height:92vh; border-radius:20px; overflow:hidden; transform-style:preserve-3d; transform-origin:left center; transition:transform 1s cubic-bezier(.6,0,.4,1), opacity .5s ease .5s; box-shadow:0 40px 90px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.08) inset; }
+.cover-panel.is-opening { transform:rotateY(-100deg); opacity:0; }
 .cover-spine { position:absolute; left:0; top:0; bottom:0; width:16px; background:linear-gradient(90deg, rgba(0,0,0,.4), rgba(0,0,0,0)); pointer-events:none; }
 .cover-cta { animation:cover-pulse 2.6s ease-in-out infinite; }
 .menu-reveal { opacity:1; transform:none; transition:opacity .7s ease .3s, transform .7s cubic-bezier(.22,1,.36,1) .3s; }
