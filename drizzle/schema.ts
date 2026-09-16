@@ -1,10 +1,12 @@
-import { boolean, index, integer, numeric, pgEnum, pgTable, serial, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, numeric, pgEnum, pgSchema, serial, text, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 
-export const companyStatusEnum = pgEnum("company_status", ["active", "suspended"]);
-export const storefrontTemplateEnum = pgEnum("storefront_template", ["classic", "modern", "cover", "premium"]);
+export const marmitaria = pgSchema("marmitaria");
+
+export const companyStatusEnum = marmitaria.enum("company_status", ["active", "suspended"]);
+export const storefrontTemplateEnum = marmitaria.enum("storefront_template", ["classic", "modern", "cover", "premium"]);
 
 /** One row per tenant restaurant/marmitaria on the platform. */
-export const companies = pgTable("companies", {
+export const companies = marmitaria.table("companies", {
   id: serial("id").primaryKey(),
   slug: varchar("slug", { length: 60 }).notNull().unique(),
   name: varchar("name", { length: 160 }).notNull(),
@@ -18,9 +20,9 @@ export const companies = pgTable("companies", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const userRoleEnum = marmitaria.enum("user_role", ["user", "admin"]);
 
-export const users = pgTable("users", {
+export const users = marmitaria.table("users", {
   id: serial("id").primaryKey(),
   supabaseUserId: uuid("supabaseUserId").notNull().unique(),
   companyId: integer("companyId"),
@@ -33,7 +35,7 @@ export const users = pgTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const menuCategories = pgTable("menu_categories", {
+export const menuCategories = marmitaria.table("menu_categories", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   name: varchar("name", { length: 120 }).notNull(),
@@ -43,7 +45,7 @@ export const menuCategories = pgTable("menu_categories", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({ companyIdx: index("menu_categories_company_idx").on(table.companyId) }));
 
-export const menuItems = pgTable("menu_items", {
+export const menuItems = marmitaria.table("menu_items", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   categoryId: integer("categoryId").notNull(),
@@ -57,7 +59,7 @@ export const menuItems = pgTable("menu_items", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (table) => ({ categoryIdx: index("menu_items_category_idx").on(table.categoryId), companyIdx: index("menu_items_company_idx").on(table.companyId) }));
 
-export const customers = pgTable("customers", {
+export const customers = marmitaria.table("customers", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   name: varchar("name", { length: 160 }).notNull(),
@@ -67,10 +69,10 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (table) => ({ companyPhoneUnique: unique("customers_company_phone_unique").on(table.companyId, table.phone) }));
 
-export const orderStatusEnum = pgEnum("order_status", ["received", "preparing", "ready", "out_for_delivery", "delivered", "cancelled"]);
-export const paymentStatusEnum = pgEnum("payment_status", ["pending", "approved", "rejected", "refunded"]);
+export const orderStatusEnum = marmitaria.enum("order_status", ["received", "preparing", "ready", "out_for_delivery", "delivered", "cancelled"]);
+export const paymentStatusEnum = marmitaria.enum("payment_status", ["pending", "approved", "rejected", "refunded"]);
 
-export const orders = pgTable("orders", {
+export const orders = marmitaria.table("orders", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   customerId: integer("customerId").notNull(),
@@ -89,7 +91,7 @@ export const orders = pgTable("orders", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (table) => ({ statusIdx: index("orders_status_idx").on(table.status), createdIdx: index("orders_created_idx").on(table.createdAt), companyIdx: index("orders_company_idx").on(table.companyId) }));
 
-export const orderItems = pgTable("order_items", {
+export const orderItems = marmitaria.table("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("orderId").notNull(),
   menuItemId: integer("menuItemId").notNull(),
@@ -99,7 +101,7 @@ export const orderItems = pgTable("order_items", {
   observation: text("observation"),
 });
 
-export const expenses = pgTable("expenses", {
+export const expenses = marmitaria.table("expenses", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   description: varchar("description", { length: 200 }).notNull(),
@@ -110,7 +112,7 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({ companyIdx: index("expenses_company_idx").on(table.companyId) }));
 
-export const inventoryItems = pgTable("inventory_items", {
+export const inventoryItems = marmitaria.table("inventory_items", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   name: varchar("name", { length: 160 }).notNull(),
@@ -122,9 +124,9 @@ export const inventoryItems = pgTable("inventory_items", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (table) => ({ companyIdx: index("inventory_items_company_idx").on(table.companyId) }));
 
-export const inventoryMovementTypeEnum = pgEnum("inventory_movement_type", ["in", "out", "adjustment"]);
+export const inventoryMovementTypeEnum = marmitaria.enum("inventory_movement_type", ["in", "out", "adjustment"]);
 
-export const inventoryMovements = pgTable("inventory_movements", {
+export const inventoryMovements = marmitaria.table("inventory_movements", {
   id: serial("id").primaryKey(),
   inventoryItemId: integer("inventoryItemId").notNull(),
   type: inventoryMovementTypeEnum("type").notNull(),
@@ -133,7 +135,7 @@ export const inventoryMovements = pgTable("inventory_movements", {
   occurredAt: timestamp("occurredAt").defaultNow().notNull(),
 });
 
-export const integrationProviderEnum = pgEnum("integration_provider", ["mercadopago", "uber_direct", "lalamove", "own_courier", "messaging"]);
+export const integrationProviderEnum = marmitaria.enum("integration_provider", ["mercadopago", "uber_direct", "lalamove", "own_courier", "messaging"]);
 
 /**
  * Persists integration state per company. `credentials` holds an AES-GCM
@@ -141,7 +143,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", ["mercadop
  * info (e.g. connected seller email, public key). Never return `credentials`
  * to the client.
  */
-export const integrationSettings = pgTable("integration_settings", {
+export const integrationSettings = marmitaria.table("integration_settings", {
   id: serial("id").primaryKey(),
   companyId: integer("companyId").notNull(),
   provider: integrationProviderEnum("provider").notNull(),
