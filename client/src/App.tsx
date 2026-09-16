@@ -9,6 +9,7 @@ import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
 import CompanyIntegrations from "./pages/CompanyIntegrations";
 import CompanySignUp from "./pages/CompanySignUp";
+import Kitchen from "./pages/Kitchen";
 import Landing from "./pages/Landing";
 import SuperAdmin from "./pages/SuperAdmin";
 
@@ -20,7 +21,7 @@ function Router() {
     <Route path="/super-admin" component={SuperAdmin} />
     <Route path="/:slug/admin/integracoes" component={CompanyIntegrations} />
     <Route path="/:slug/admin" component={Admin} />
-    <Route path="/:slug/cozinha" component={Admin} />
+    <Route path="/:slug/cozinha" component={Kitchen} />
     <Route path="/404" component={NotFound} />
     <Route path="/:slug" component={Home} />
     <Route component={NotFound} />
