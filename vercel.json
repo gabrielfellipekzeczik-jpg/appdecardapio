@@ -2,14 +2,11 @@
   "buildCommand": "pnpm run build:vercel",
   "outputDirectory": "dist/public",
   "installCommand": "pnpm install",
-  "functions": {
-    "api/index.ts": {
-      "runtime": "nodejs22.x"
-    }
-  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/api/mercadopago/oauth-callback(.*)", "destination": "/api/trpc" },
+    { "source": "/api/webhooks/mercadopago(.*)", "destination": "/api/trpc" },
+    { "source": "/api/mercadopago-oauth", "destination": "/api/mercadopago-oauth" },
+    { "source": "/api/trpc/(.*)", "destination": "/api/trpc" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
-

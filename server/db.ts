@@ -1,230 +1,370 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import {
-  InsertUser, IntegrationSettings, menuCategories, menuItems, orders, users, customers, orderItems,
-  inventoryItems, expenses, integrationSettings,
-} from "../drizzle/schema";
-import { ENV } from "./_core/env";
-import { decryptJson, encryptJson } from "./_core/crypto";
+// server/db.ts — queries via Supabase SDK (SUPABASE_SERVICE_ROLE_KEY)
+// sem DATABASE_URL. Usa schema "marmitaria" isolado.
+import { createClient } from "@supabase/supabase-js";
 
-let _db: ReturnType<typeof drizzle> | null = null;
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      const client = postgres(process.env.DATABASE_URL, { max: 1 });
-      _db = drizzle(client);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+const SCHEMA = "marmitaria";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DB = ReturnType<typeof createClient<any, any, any>>;
+
+let _db: DB | null = null;
+
+export function getDb(): DB {
+  if (!_db) {
+    const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    if (!url || !key) throw new Error("SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios");
+    _db = createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: SCHEMA },
+    });
   }
   return _db;
 }
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type User = {
+  id: number;
+  supabaseUserId: string;
+  companyId: number | null;
+  name: string | null;
+  email: string | null;
+  loginMethod: string | null;
+  role: "user" | "admin";
+  createdAt: string;
+  updatedAt: string;
+  lastSignedIn: string;
+};
+
+export type Company = {
+  id: number;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  logoUrl: string | null;
+  heroImageUrl: string | null;
+  primaryColor: string | null;
+  templateId: "classic" | "modern" | "cover" | "premium";
+  pickupAddress: string | null;
+  status: "active" | "suspended";
+  mp_connected: boolean;
+  mp_fee_percent: number | null;
+  createdAt: string;
+};
+
+export type MenuItem = {
+  id: number;
+  companyId: number;
+  categoryId: number;
+  name: string;
+  description: string | null;
+  price: string;
+  imageUrl: string | null;
+  active: boolean;
+  featured: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MenuCategory = {
+  id: number;
+  companyId: number;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+};
+
+export type Customer = {
+  id: number;
+  companyId: number;
+  name: string;
+  phone: string;
+  address: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Order = {
+  id: number;
+  companyId: number;
+  customerId: number;
+  status: string;
+  paymentStatus: "pending" | "approved" | "rejected" | "refunded";
+  paymentMethod: string | null;
+  subtotal: string;
+  deliveryFee: string;
+  total: string;
+  platformFeeAmount: string | null;
+  notes: string | null;
+  trackingUrl: string | null;
+  externalPaymentId: string | null;
+  externalDeliveryId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OrderItem = {
+  id: number;
+  orderId: number;
+  menuItemId: number;
+  itemName: string;
+  quantity: number;
+  unitPrice: string;
+  observation: string | null;
+};
+
+export type InsertUser = Partial<User> & { supabaseUserId: string };
+
+export type IntegrationSettings = {
+  id: number;
+  companyId: number;
+  provider: string;
+  connected: boolean;
+  credentials: string | null;
+  metadata: string | null;
+  connectedAt: string | null;
+  updatedAt: string;
+};
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.supabaseUserId) throw new Error("User supabaseUserId is required for upsert");
-  const db = await getDb();
-  if (!db) return;
-  const values: InsertUser = { supabaseUserId: user.supabaseUserId };
-  const updateSet: Record<string, unknown> = {};
-  if (user.name !== undefined) { values.name = user.name ?? null; updateSet.name = values.name; }
-  if (user.email !== undefined) { values.email = user.email ?? null; updateSet.email = values.email; }
-  if (user.loginMethod !== undefined) { values.loginMethod = user.loginMethod ?? null; updateSet.loginMethod = values.loginMethod; }
-  if (user.companyId !== undefined) { values.companyId = user.companyId ?? null; updateSet.companyId = values.companyId; }
-  const email = (values.email ?? undefined) as string | undefined;
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (email && email.toLowerCase() === ENV.ownerEmail) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
-  values.lastSignedIn = user.lastSignedIn ?? new Date();
-  updateSet.lastSignedIn = values.lastSignedIn;
-  await db.insert(users).values(values).onConflictDoUpdate({ target: users.supabaseUserId, set: updateSet });
+  if (!user.supabaseUserId) throw new Error("supabaseUserId is required");
+  const db = getDb();
+  const values: Record<string, unknown> = {
+    supabaseUserId: user.supabaseUserId,
+    lastSignedIn: new Date().toISOString(),
+  };
+  if (user.name !== undefined) values.name = user.name;
+  if (user.email !== undefined) values.email = user.email;
+  if (user.loginMethod !== undefined) values.loginMethod = user.loginMethod;
+  if (user.companyId !== undefined) values.companyId = user.companyId;
+  if (user.role !== undefined) values.role = user.role;
+
+  await db.from("users").upsert(values as Record<string, unknown>, { onConflict: "supabaseUserId" });
 }
 
-export async function getUserBySupabaseId(supabaseUserId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.supabaseUserId, supabaseUserId)).limit(1);
-  return result[0];
+export async function getUserBySupabaseId(supabaseUserId: string): Promise<User | undefined> {
+  const db = getDb();
+  const { data } = await db.from("users").select("*").eq("supabaseUserId", supabaseUserId).limit(1).single();
+  return (data as User) ?? undefined;
 }
+
+// ─── Menu ────────────────────────────────────────────────────────────────────
 
 export async function listActiveMenu(companyId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({ item: menuItems, category: menuCategories }).from(menuItems)
-    .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
-    .where(and(eq(menuItems.companyId, companyId), eq(menuItems.active, true), eq(menuCategories.active, true)))
-    .orderBy(menuCategories.sortOrder, menuItems.name);
+  const db = getDb();
+  const { data } = await db
+    .from("menu_items")
+    .select("*, menu_categories(*)")
+    .eq("companyId", companyId)
+    .eq("active", true)
+    .order("name");
+  return ((data ?? []) as Array<MenuItem & { menu_categories: MenuCategory | null }>).map((row) => ({
+    item: { ...row, menu_categories: undefined } as MenuItem,
+    category: row.menu_categories as MenuCategory | null,
+  }));
 }
+
+// ─── Orders ──────────────────────────────────────────────────────────────────
 
 export async function listRecentOrders(companyId: number, limit = 20) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({ order: orders, customer: customers }).from(orders)
-    .leftJoin(customers, eq(orders.customerId, customers.id))
-    .where(eq(orders.companyId, companyId))
-    .orderBy(desc(orders.createdAt)).limit(limit);
+  const db = getDb();
+  const { data } = await db
+    .from("orders")
+    .select("*, customers(*)")
+    .eq("companyId", companyId)
+    .order("createdAt", { ascending: false })
+    .limit(limit);
+  return ((data ?? []) as Array<Order & { customers: Customer | null }>).map((row) => ({
+    order: { ...row, customers: undefined } as Order,
+    customer: row.customers as Customer | null,
+  }));
 }
 
-export async function createCustomerOrder(companyId: number, input: { name: string; phone: string; address: string; paymentMethod?: string; subtotal: number; deliveryFee: number; total: number; notes?: string; items: Array<{ menuItemId: number; itemName: string; quantity: number; unitPrice: number; observation?: string }> }) {
-  const db = await getDb();
-  if (!db) return { orderId: null, persisted: false as const };
-  return db.transaction(async (tx) => {
-    await tx.insert(customers).values({ companyId, name: input.name, phone: input.phone, address: input.address })
-      .onConflictDoUpdate({ target: [customers.companyId, customers.phone], set: { name: input.name, address: input.address, updatedAt: new Date() } });
-    const [customer] = await tx.select().from(customers).where(and(eq(customers.companyId, companyId), eq(customers.phone, input.phone))).limit(1);
-    if (!customer) throw new Error("Customer could not be created");
-    const [insertedOrder] = await tx.insert(orders).values({
-      companyId,
-      customerId: customer.id,
-      subtotal: input.subtotal.toFixed(2),
-      deliveryFee: input.deliveryFee.toFixed(2),
-      total: input.total.toFixed(2),
-      notes: input.notes,
-      paymentMethod: input.paymentMethod ?? "pending",
-    }).returning({ id: orders.id });
-    const orderId = insertedOrder.id;
-    if (input.items.length) await tx.insert(orderItems).values(input.items.map((item) => ({ orderId, menuItemId: item.menuItemId, itemName: item.itemName, quantity: item.quantity, unitPrice: item.unitPrice.toFixed(2), observation: item.observation })));
-    return { orderId, persisted: true as const };
-  });
+export async function createCustomerOrder(companyId: number, input: {
+  name: string; phone: string; address: string;
+  paymentMethod?: string; subtotal: number; deliveryFee: number; total: number;
+  notes?: string;
+  items: Array<{ menuItemId: number; itemName: string; quantity: number; unitPrice: number; observation?: string }>;
+}) {
+  const db = getDb();
+
+  await db.from("customers").upsert(
+    { companyId, name: input.name, phone: input.phone, address: input.address, updatedAt: new Date().toISOString() } as Record<string, unknown>,
+    { onConflict: "companyId,phone" }
+  );
+  const { data: customerData } = await db.from("customers")
+    .select("id").eq("companyId", companyId).eq("phone", input.phone).limit(1).single();
+  const customer = customerData as { id: number } | null;
+  if (!customer) return { orderId: null, persisted: false as const };
+
+  const { data: orderData } = await db.from("orders").insert({
+    companyId,
+    customerId: customer.id,
+    subtotal: input.subtotal.toFixed(2),
+    deliveryFee: input.deliveryFee.toFixed(2),
+    total: input.total.toFixed(2),
+    notes: input.notes,
+    paymentMethod: input.paymentMethod ?? "pending",
+  } as Record<string, unknown>).select("id").single();
+  const order = orderData as { id: number } | null;
+
+  if (!order) return { orderId: null, persisted: false as const };
+
+  if (input.items.length) {
+    await db.from("order_items").insert(
+      input.items.map((item) => ({
+        orderId: order.id,
+        menuItemId: item.menuItemId,
+        itemName: item.itemName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice.toFixed(2),
+        observation: item.observation,
+      })) as Record<string, unknown>[]
+    );
+  }
+
+  return { orderId: order.id, persisted: true as const };
 }
 
 export async function listCustomerOrders(companyId: number, phone: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({ order: orders, customer: customers }).from(orders)
-    .innerJoin(customers, eq(orders.customerId, customers.id))
-    .where(and(eq(orders.companyId, companyId), eq(customers.phone, phone)))
-    .orderBy(desc(orders.createdAt)).limit(20);
+  const db = getDb();
+  const { data: customerData } = await db.from("customers")
+    .select("id").eq("companyId", companyId).eq("phone", phone).limit(1).single();
+  const customer = customerData as { id: number } | null;
+  if (!customer) return [];
+  const { data } = await db.from("orders")
+    .select("*, customers(*)")
+    .eq("companyId", companyId)
+    .eq("customerId", customer.id)
+    .order("createdAt", { ascending: false })
+    .limit(20);
+  return ((data ?? []) as Array<Order & { customers: Customer | null }>).map((row) => ({
+    order: { ...row, customers: undefined } as Order,
+    customer: row.customers as Customer | null,
+  }));
 }
 
 export async function getOrderById(companyId: number, id: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const [order] = await db.select({ order: orders, customer: customers }).from(orders)
-    .leftJoin(customers, eq(orders.customerId, customers.id))
-    .where(and(eq(orders.companyId, companyId), eq(orders.id, id))).limit(1);
-  const items = order ? await db.select().from(orderItems).where(eq(orderItems.orderId, id)) : [];
-  return order ? { ...order, items } : undefined;
+  const db = getDb();
+  const { data: orderRow } = await db.from("orders")
+    .select("*, customers(*)").eq("companyId", companyId).eq("id", id).limit(1).single();
+  if (!orderRow) return undefined;
+  const row = orderRow as Order & { customers: Customer | null };
+  const { data: itemsData } = await db.from("order_items").select("*").eq("orderId", id);
+  const items = (itemsData ?? []) as OrderItem[];
+  return { order: { ...row, customers: undefined } as Order, customer: row.customers, items };
 }
 
 export async function getDashboardSummary(companyId: number) {
-  const db = await getDb();
-  if (!db) return { revenue: 0, orders: 0, averageTicket: 0 };
-  const [result] = await db.select({ revenue: sql<number>`coalesce(sum(${orders.total}), 0)`, orderCount: sql<number>`count(*)` })
-    .from(orders).where(and(eq(orders.companyId, companyId), eq(orders.paymentStatus, "approved")));
-  const revenue = Number(result?.revenue ?? 0);
-  const orderCount = Number(result?.orderCount ?? 0);
+  const db = getDb();
+  const { data } = await db.from("orders")
+    .select("total").eq("companyId", companyId).eq("paymentStatus", "approved");
+  const rows = (data ?? []) as Array<{ total: string }>;
+  const revenue = rows.reduce((sum, r) => sum + Number(r.total), 0);
+  const orderCount = rows.length;
   return { revenue, orders: orderCount, averageTicket: orderCount ? revenue / orderCount : 0 };
 }
 
 export async function listAdminMenu(companyId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(menuItems).where(eq(menuItems.companyId, companyId)).orderBy(menuItems.name);
+  const db = getDb();
+  const { data } = await db.from("menu_items").select("*").eq("companyId", companyId).order("name");
+  return (data ?? []) as MenuItem[];
 }
 
 export async function listInventory(companyId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(inventoryItems).where(eq(inventoryItems.companyId, companyId)).orderBy(inventoryItems.name);
+  const db = getDb();
+  const { data } = await db.from("inventory_items").select("*").eq("companyId", companyId).order("name");
+  return (data ?? []) as Record<string, unknown>[];
 }
 
 export async function listRecentExpenses(companyId: number, limit = 50) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(expenses).where(eq(expenses.companyId, companyId)).orderBy(desc(expenses.incurredAt)).limit(limit);
+  const db = getDb();
+  const { data } = await db.from("expenses").select("*").eq("companyId", companyId)
+    .order("incurredAt", { ascending: false }).limit(limit);
+  return (data ?? []) as Record<string, unknown>[];
 }
 
 export const ORDER_STATUS_FLOW = ["received", "preparing", "ready", "out_for_delivery", "delivered"] as const;
 export type OrderStatus = (typeof ORDER_STATUS_FLOW)[number];
 
-/** Returns `persisted: false` (no throw) when the order doesn't belong to `companyId`, so a stray/foreign id fails closed. */
 export async function advanceOrderStatus(companyId: number, orderId: number, status: OrderStatus) {
-  const db = await getDb();
-  if (!db) return { orderId, status, persisted: false as const };
-  const result = await db.update(orders).set({ status, updatedAt: new Date() })
-    .where(and(eq(orders.id, orderId), eq(orders.companyId, companyId))).returning({ id: orders.id });
-  return { orderId, status, persisted: result.length > 0 };
+  const db = getDb();
+  const { data } = await db.from("orders")
+    .update({ status, updatedAt: new Date().toISOString() } as Record<string, unknown>)
+    .eq("id", orderId).eq("companyId", companyId)
+    .select("id");
+  return { orderId, status, persisted: ((data ?? []) as unknown[]).length > 0 };
 }
 
 export async function setOrderDelivery(orderId: number, input: { trackingUrl?: string | null; externalDeliveryId?: string | null }) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(orders).set({ ...input, updatedAt: new Date() }).where(eq(orders.id, orderId));
+  const db = getDb();
+  await db.from("orders").update({ ...input, updatedAt: new Date().toISOString() } as Record<string, unknown>).eq("id", orderId);
 }
 
 export async function setOrderPayment(orderId: number, input: { paymentStatus: "pending" | "approved" | "rejected" | "refunded"; externalPaymentId?: string | null; platformFeeAmount?: string | null }) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(orders).set({ ...input, updatedAt: new Date() }).where(eq(orders.id, orderId));
+  const db = getDb();
+  await db.from("orders").update({ ...input, updatedAt: new Date().toISOString() } as Record<string, unknown>).eq("id", orderId);
 }
 
 export async function findOrderByExternalPaymentId(companyId: number, externalPaymentId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const [order] = await db.select().from(orders).where(and(eq(orders.companyId, companyId), eq(orders.externalPaymentId, externalPaymentId))).limit(1);
-  return order;
+  const db = getDb();
+  const { data } = await db.from("orders")
+    .select("*").eq("companyId", companyId).eq("externalPaymentId", externalPaymentId).limit(1).single();
+  return (data as Order) ?? undefined;
 }
 
-// --- Integration settings (Mercado Pago, Uber Direct, Lalamove, own courier, messaging) ---
-// Scoped per company. `credentials` are stored encrypted (server/_core/crypto.ts) and never returned to the client.
+// ─── Integrations ────────────────────────────────────────────────────────────
 
 export type IntegrationProvider = "mercadopago" | "uber_direct" | "lalamove" | "own_courier" | "messaging";
 
+import { decryptJson, encryptJson } from "./_core/crypto";
+
 export async function getIntegrationSettings(companyId: number, provider: IntegrationProvider): Promise<IntegrationSettings | undefined> {
-  const db = await getDb();
-  if (!db) return undefined;
-  const [row] = await db.select().from(integrationSettings).where(and(eq(integrationSettings.companyId, companyId), eq(integrationSettings.provider, provider))).limit(1);
-  return row;
+  const db = getDb();
+  const { data } = await db.from("integration_settings")
+    .select("*").eq("companyId", companyId).eq("provider", provider).limit(1).single();
+  return (data as IntegrationSettings) ?? undefined;
 }
 
 export async function getIntegrationCredentials<T = Record<string, unknown>>(companyId: number, provider: IntegrationProvider): Promise<T | undefined> {
   const row = await getIntegrationSettings(companyId, provider);
   if (!row?.connected || !row.credentials) return undefined;
-  try {
-    return decryptJson<T>(row.credentials);
-  } catch (error) {
-    console.error(`[Integrations] Failed to decrypt credentials for company ${companyId} / ${provider}:`, error);
+  try { return decryptJson<T>(row.credentials); }
+  catch (error) {
+    console.error(`[Integrations] Failed to decrypt credentials for company ${companyId}/${provider}:`, error);
     return undefined;
   }
 }
 
 export async function saveIntegrationCredentials(companyId: number, provider: IntegrationProvider, credentials: Record<string, unknown>, metadata?: Record<string, unknown>) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const db = getDb();
   const encrypted = encryptJson(credentials);
-  const now = new Date();
-  await db.insert(integrationSettings).values({
-    companyId,
-    provider,
-    connected: true,
+  const now = new Date().toISOString();
+  await db.from("integration_settings").upsert({
+    companyId, provider, connected: true,
     credentials: encrypted,
     metadata: metadata ? JSON.stringify(metadata) : null,
-    connectedAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [integrationSettings.companyId, integrationSettings.provider],
-    set: { connected: true, credentials: encrypted, metadata: metadata ? JSON.stringify(metadata) : null, connectedAt: now, updatedAt: now },
-  });
+    connectedAt: now, updatedAt: now,
+  } as Record<string, unknown>, { onConflict: "companyId,provider" });
 }
 
 export async function disconnectIntegration(companyId: number, provider: IntegrationProvider) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(integrationSettings).set({ connected: false, credentials: null, updatedAt: new Date() })
-    .where(and(eq(integrationSettings.companyId, companyId), eq(integrationSettings.provider, provider)));
+  const db = getDb();
+  await db.from("integration_settings")
+    .update({ connected: false, credentials: null, updatedAt: new Date().toISOString() } as Record<string, unknown>)
+    .eq("companyId", companyId).eq("provider", provider);
 }
 
 export async function getIntegrationsStatus(companyId: number) {
-  const db = await getDb();
-  if (!db) return { mercadopago: false, uber_direct: false, lalamove: false, own_courier: false, messaging: false };
-  const rows = await db.select({ provider: integrationSettings.provider, connected: integrationSettings.connected }).from(integrationSettings)
-    .where(eq(integrationSettings.companyId, companyId));
+  const db = getDb();
+  const { data } = await db.from("integration_settings")
+    .select("provider, connected").eq("companyId", companyId);
+  const rows = (data ?? []) as Array<{ provider: string; connected: boolean }>;
   const byProvider = new Map(rows.map((r) => [r.provider, r]));
   return {
     mercadopago: byProvider.get("mercadopago")?.connected ?? false,
@@ -235,7 +375,6 @@ export async function getIntegrationsStatus(companyId: number) {
   };
 }
 
-/** Which delivery provider (if any) is active for the company — used to dispatch on order-ready. */
 export async function getActiveDeliveryProvider(companyId: number): Promise<Exclude<IntegrationProvider, "mercadopago" | "messaging"> | undefined> {
   const status = await getIntegrationsStatus(companyId);
   if (status.uber_direct) return "uber_direct";
