@@ -93,42 +93,36 @@ function Counter({ to, suffix = "" }: { to: number; suffix?: string }) {
 
 // ── Auto-scrolling image carousel ────────────────────────────────────────────
 function FoodCarousel() {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [duration, setDuration] = useState(14);
   const imgs = [...foodImages, ...foodImages];
-
-  // Measure half-track width after mount and on resize,
-  // then derive duration at a constant 120px/s speed.
-  useEffect(() => {
-    const SPEED = 120; // pixels per second — same perceived speed on any screen
-    function measure() {
-      if (!trackRef.current) return;
-      const halfWidth = trackRef.current.scrollWidth / 2;
-      setDuration(halfWidth / SPEED);
-    }
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
 
   return (
     <div className="relative overflow-hidden rounded-3xl" style={{ height: "clamp(160px, 40vw, 380px)" }}>
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-[#fbfaf7] to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-[#fbfaf7] to-transparent" />
 
-      <motion.div
-        ref={trackRef}
-        className="flex h-full gap-2"
-        animate={{ x: ["0%", "-50%"] }}
-        transition={{ duration, ease: "linear", repeat: Infinity }}
-      >
+      <style>{`
+        @keyframes carousel-scroll {
+          from { transform: translateX(0); }
+          to   { transform: translateX(-50%); }
+        }
+        .carousel-track {
+          display: flex;
+          height: 100%;
+          gap: 8px;
+          width: max-content;
+          animation: carousel-scroll 8s linear infinite;
+        }
+        @media (min-width: 1024px) {
+          .carousel-track { animation-duration: 18s; }
+        }
+      `}</style>
+
+      <div className="carousel-track">
         {imgs.map((src, i) => (
-          <motion.div
+          <div
             key={i}
             className="relative h-full flex-shrink-0 overflow-hidden rounded-xl shadow-md"
             style={{ width: "clamp(120px, 28vw, 220px)" }}
-            whileHover={{ scale: 1.03, zIndex: 20 }}
-            transition={{ type: "spring", stiffness: 300, damping: 20 }}
           >
             <img
               src={src}
@@ -136,15 +130,9 @@ function FoodCarousel() {
               className="h-full w-full object-cover"
               loading={i < 6 ? "eager" : "lazy"}
             />
-            <motion.div
-              className="absolute inset-0"
-              style={{ backgroundColor: RED }}
-              initial={{ opacity: 0 }}
-              whileHover={{ opacity: 0.12 }}
-            />
-          </motion.div>
+          </div>
         ))}
-      </motion.div>
+      </div>
     </div>
   );
 }
