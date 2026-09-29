@@ -4,15 +4,6 @@ import { getCheckoutState } from "@shared/checkout";
 import { appendLocalHistory, readLocalHistory, type LocalOrderHistoryEntry } from "@shared/order-history";
 import { trpc } from "@/lib/trpc";
 
-export const fallbackMenu = [
-  { id: 1, category: "Mais pedidos", name: "Caseira da semana", description: "Arroz soltinho, feijão cremoso, frango grelhado, purê de batata e salada fresca.", price: 24.9, image: "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=900&q=85", tag: "Queridinha" },
-  { id: 2, category: "Mais pedidos", name: "Bife acebolado", description: "Bife macio na chapa, arroz, feijão, farofa crocante e vinagrete da casa.", price: 28.9, image: "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=900&q=85", tag: "Artesanal" },
-  { id: 3, category: "Leves & fit", name: "Frango tropical", description: "Frango ao molho de laranja, arroz integral, legumes tostados e folhas.", price: 26.9, image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=900&q=85", tag: "Leve" },
-  { id: 4, category: "Leves & fit", name: "Bowl da horta", description: "Quinoa, grão-de-bico, abóbora assada, avocado e molho de ervas.", price: 25.9, image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=900&q=85", tag: "Vegetariana" },
-  { id: 5, category: "Especiais", name: "Parmegiana de domingo", description: "Frango empanado, molho de tomate assado, queijo gratinado e batatas rústicas.", price: 32.9, image: "https://images.unsplash.com/photo-1632778149955-e80f8ceca2e8?auto=format&fit=crop&w=900&q=85", tag: "Especial" },
-  { id: 6, category: "Especiais", name: "Lasanha de vó", description: "Massa artesanal, ragu de panela, bechamel e parmesão gratinado.", price: 30.9, image: "https://images.unsplash.com/photo-1619895092538-128341789043?auto=format&fit=crop&w=900&q=85", tag: "Conforto" },
-];
-
 /** Used behind the cover/hero when a company hasn't uploaded their own photo yet — a moody restaurant interior reads much more "this is a real place" than a flat color gradient. */
 export const DEFAULT_HERO_IMAGE = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1600&q=80";
 
@@ -77,9 +68,7 @@ export function useStorefront(slug: string) {
     }
   }, [paymentOrderQuery.data, pixQrCode]);
 
-  const menu = menuQuery.data?.length
-    ? menuQuery.data.map(({ item, category }) => ({ id: item.id, category: category?.name || "Cardápio", name: item.name, description: item.description || "Preparado hoje na cozinha.", price: Number(item.price), image: item.imageUrl || fallbackMenu[0].image, tag: item.featured ? "Destaque" : "Da casa" }))
-    : fallbackMenu;
+  const menu = (menuQuery.data ?? []).map(({ item, category }) => ({ id: item.id, category: category?.name || "Cardápio", name: item.name, description: item.description || "", price: Number(item.price), image: item.imageUrl || DEFAULT_HERO_IMAGE, tag: item.featured ? "Destaque" : "Da casa" }));
 
   const categories = ["Todos", ...Array.from(new Set(menu.map((item) => item.category)))];
   const visibleMenu = activeCategory === "Todos" ? menu : menu.filter((item) => item.category === activeCategory);
@@ -117,10 +106,6 @@ export function useStorefront(slug: string) {
     else toast.error("Não foi possível registrar o pedido agora.");
     return result.orderId;
   };
-  const submitDemoOrder = async () => {
-    const id = await ensureOrderCreated();
-    if (id) toast.info("Pedido salvo. O pagamento será ativado após o cadastro do Mercado Pago.");
-  };
   const handleBrickSubmit = async (formData: { payment_method_id: string; token?: string; installments?: number; issuer_id?: string; payer: { email: string } }) => {
     const id = await ensureOrderCreated();
     if (!id) throw new Error("Não foi possível criar o pedido");
@@ -146,7 +131,7 @@ export function useStorefront(slug: string) {
     checkoutOpen, setCheckoutOpen, customer, setCustomer, paymentMethod, setPaymentMethod,
     checkoutState, checkoutConfigQuery, historyQuery, setSelectedHistoryId,
     orderId, pixQrCode, createOrderMutation, createPaymentMutation,
-    ensureOrderCreated, submitDemoOrder, handleBrickSubmit,
+    ensureOrderCreated, handleBrickSubmit,
     orderHistory, lastOrder, repeatSavedOrder, repeatLastOrder,
   };
 }

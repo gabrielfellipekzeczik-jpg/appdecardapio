@@ -5,6 +5,7 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "../server/routers";
 import { createContext } from "../server/_core/context";
+import { assertRuntimeEnv } from "../server/_core/env";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // Handler de OAuth callback do Mercado Pago (antes era Express route em webhooks.ts)
@@ -116,6 +117,13 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  try {
+    assertRuntimeEnv();
+  } catch (error) {
+    res.writeHead(500, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: error instanceof Error ? error.message : "Configuração do servidor incompleta." }));
+    return;
+  }
   const url = req.url ?? "";
 
   // Rotas especiais que não são tRPC

@@ -21,3 +21,16 @@ export const ENV = {
   // Delivery provider credentials (Uber Direct, Lalamove) are per-company —
   // see `server/db.ts` `getIntegrationCredentials`, not env vars.
 };
+
+export function assertRuntimeEnv(): void {
+  if (process.env.NODE_ENV === "test") return;
+  const missing: string[] = [];
+  if (!(ENV.supabaseUrl || process.env.VITE_SUPABASE_URL)) missing.push("SUPABASE_URL");
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (!ENV.supabaseJwtSecret) missing.push("SUPABASE_JWT_SECRET");
+  if (!process.env.VITE_SUPABASE_URL) missing.push("VITE_SUPABASE_URL");
+  if (!process.env.VITE_SUPABASE_ANON_KEY) missing.push("VITE_SUPABASE_ANON_KEY");
+  if (missing.length) {
+    throw new Error(`Configuração incompleta. Defina no ambiente: ${missing.join(", ")}. Consulte SETUP.md.`);
+  }
+}

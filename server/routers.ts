@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { isOwnerEmail } from "./_core/supabaseAuth";
 import { companyAdminProcedure, publicProcedure, protectedProcedure, router, superAdminProcedure } from "./_core/trpc";
 import { createCompany, getCompanyById, getCompanyBySlug, isSlugAvailableFormat, listCompanies, setCompanyStatus, updateCompanyBranding } from "./companies";
-import { buildDemoCompany, isDemoMode } from "./demoData";
+import { buildTestCompany, isTestMode } from "./testData";
 import { unavailableDeliveryResponse } from "@shared/delivery";
 import {
   advanceOrderStatus, createCustomerOrder, getActiveDeliveryProvider, getDashboardSummary, getOrderById, getIntegrationsStatus,
@@ -16,7 +16,7 @@ import { createDelivery as createUberDelivery } from "./integrations/uberDirect"
 import { createDelivery as createLalamoveDelivery } from "./integrations/lalamove";
 
 async function requireCompanyBySlug(slug: string) {
-  if (isDemoMode()) return buildDemoCompany(slug);
+  if (isTestMode()) return buildTestCompany(slug);
   const company = await getCompanyBySlug(slug);
   if (!company) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa não encontrada." });
   return company;
@@ -29,7 +29,7 @@ export const appRouter = router({
   }),
   company: router({
     bySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
-      if (isDemoMode()) return buildDemoCompany(input.slug);
+      if (isTestMode()) return buildTestCompany(input.slug);
       const company = await getCompanyBySlug(input.slug);
       return company ?? null;
     }),
@@ -138,7 +138,7 @@ export const appRouter = router({
   }),
   payments: router({
     // Public: the customer checkout needs to know whether to render the live
-    // Payment Brick (Pix/crédito/débito) or the demo notice, and the seller's
+    // Payment Brick (Pix/crédito/débito) and the seller's
     // public key to initialize the Brick client-side. Never expose the access token.
     checkoutConfig: publicProcedure.input(z.object({ companySlug: z.string() })).query(async ({ input }) => {
       const company = await requireCompanyBySlug(input.companySlug);

@@ -1,6 +1,12 @@
 // server/db.ts — queries via Supabase SDK (SUPABASE_SERVICE_ROLE_KEY)
 // sem DATABASE_URL. Usa schema "marmitaria" isolado.
 import { createClient } from "@supabase/supabase-js";
+import { isTestMode } from "./testData";
+import {
+  testAdvanceOrderStatus, testCreateCustomerOrder, testDashboardSummary, testFindOrderByExternalPaymentId,
+  testGetIntegrationsStatus, testGetOrderById, testListActiveMenu, testListAdminMenu, testListCustomerOrders,
+  testListExpenses, testListInventory, testListRecentOrders, testSetOrderDelivery, testSetOrderPayment,
+} from "./testStore";
 
 const SCHEMA = "marmitaria";
 
@@ -156,6 +162,7 @@ export async function getUserBySupabaseId(supabaseUserId: string): Promise<User 
 // ─── Menu ────────────────────────────────────────────────────────────────────
 
 export async function listActiveMenu(companyId: number) {
+  if (isTestMode()) return testListActiveMenu();
   const db = getDb();
   const { data } = await db
     .from("menu_items")
@@ -172,6 +179,7 @@ export async function listActiveMenu(companyId: number) {
 // ─── Orders ──────────────────────────────────────────────────────────────────
 
 export async function listRecentOrders(companyId: number, limit = 20) {
+  if (isTestMode()) return testListRecentOrders(limit);
   const db = getDb();
   const { data } = await db
     .from("orders")
@@ -191,6 +199,7 @@ export async function createCustomerOrder(companyId: number, input: {
   notes?: string;
   items: Array<{ menuItemId: number; itemName: string; quantity: number; unitPrice: number; observation?: string }>;
 }) {
+  if (isTestMode()) return testCreateCustomerOrder(input);
   const db = getDb();
 
   await db.from("customers").upsert(
@@ -232,6 +241,7 @@ export async function createCustomerOrder(companyId: number, input: {
 }
 
 export async function listCustomerOrders(companyId: number, phone: string) {
+  if (isTestMode()) return testListCustomerOrders(phone);
   const db = getDb();
   const { data: customerData } = await db.from("customers")
     .select("id").eq("companyId", companyId).eq("phone", phone).limit(1).single();
@@ -250,6 +260,7 @@ export async function listCustomerOrders(companyId: number, phone: string) {
 }
 
 export async function getOrderById(companyId: number, id: number) {
+  if (isTestMode()) return testGetOrderById(id);
   const db = getDb();
   const { data: orderRow } = await db.from("orders")
     .select("*, customers(*)").eq("companyId", companyId).eq("id", id).limit(1).single();
@@ -261,6 +272,7 @@ export async function getOrderById(companyId: number, id: number) {
 }
 
 export async function getDashboardSummary(companyId: number) {
+  if (isTestMode()) return testDashboardSummary();
   const db = getDb();
   const { data } = await db.from("orders")
     .select("total").eq("companyId", companyId).eq("paymentStatus", "approved");
@@ -271,18 +283,21 @@ export async function getDashboardSummary(companyId: number) {
 }
 
 export async function listAdminMenu(companyId: number) {
+  if (isTestMode()) return testListAdminMenu();
   const db = getDb();
   const { data } = await db.from("menu_items").select("*").eq("companyId", companyId).order("name");
   return (data ?? []) as MenuItem[];
 }
 
 export async function listInventory(companyId: number) {
+  if (isTestMode()) return testListInventory();
   const db = getDb();
   const { data } = await db.from("inventory_items").select("*").eq("companyId", companyId).order("name");
   return (data ?? []) as Record<string, unknown>[];
 }
 
 export async function listRecentExpenses(companyId: number, limit = 50) {
+  if (isTestMode()) return testListExpenses();
   const db = getDb();
   const { data } = await db.from("expenses").select("*").eq("companyId", companyId)
     .order("incurredAt", { ascending: false }).limit(limit);
@@ -293,6 +308,7 @@ export const ORDER_STATUS_FLOW = ["received", "preparing", "ready", "out_for_del
 export type OrderStatus = (typeof ORDER_STATUS_FLOW)[number];
 
 export async function advanceOrderStatus(companyId: number, orderId: number, status: OrderStatus) {
+  if (isTestMode()) return testAdvanceOrderStatus(orderId, status);
   const db = getDb();
   const { data } = await db.from("orders")
     .update({ status, updatedAt: new Date().toISOString() } as Record<string, unknown>)
@@ -302,16 +318,25 @@ export async function advanceOrderStatus(companyId: number, orderId: number, sta
 }
 
 export async function setOrderDelivery(orderId: number, input: { trackingUrl?: string | null; externalDeliveryId?: string | null }) {
+  if (isTestMode()) {
+    testSetOrderDelivery(orderId, input);
+    return;
+  }
   const db = getDb();
   await db.from("orders").update({ ...input, updatedAt: new Date().toISOString() } as Record<string, unknown>).eq("id", orderId);
 }
 
 export async function setOrderPayment(orderId: number, input: { paymentStatus: "pending" | "approved" | "rejected" | "refunded"; externalPaymentId?: string | null; platformFeeAmount?: string | null }) {
+  if (isTestMode()) {
+    testSetOrderPayment(orderId, input);
+    return;
+  }
   const db = getDb();
   await db.from("orders").update({ ...input, updatedAt: new Date().toISOString() } as Record<string, unknown>).eq("id", orderId);
 }
 
 export async function findOrderByExternalPaymentId(companyId: number, externalPaymentId: string) {
+  if (isTestMode()) return testFindOrderByExternalPaymentId(externalPaymentId);
   const db = getDb();
   const { data } = await db.from("orders")
     .select("*").eq("companyId", companyId).eq("externalPaymentId", externalPaymentId).limit(1).single();
@@ -325,6 +350,7 @@ export type IntegrationProvider = "mercadopago" | "uber_direct" | "lalamove" | "
 import { decryptJson, encryptJson } from "./_core/crypto";
 
 export async function getIntegrationSettings(companyId: number, provider: IntegrationProvider): Promise<IntegrationSettings | undefined> {
+  if (isTestMode()) return undefined;
   const db = getDb();
   const { data } = await db.from("integration_settings")
     .select("*").eq("companyId", companyId).eq("provider", provider).limit(1).single();
@@ -342,6 +368,7 @@ export async function getIntegrationCredentials<T = Record<string, unknown>>(com
 }
 
 export async function saveIntegrationCredentials(companyId: number, provider: IntegrationProvider, credentials: Record<string, unknown>, metadata?: Record<string, unknown>) {
+  if (isTestMode()) return;
   const db = getDb();
   const encrypted = encryptJson(credentials);
   const now = new Date().toISOString();
@@ -354,6 +381,7 @@ export async function saveIntegrationCredentials(companyId: number, provider: In
 }
 
 export async function disconnectIntegration(companyId: number, provider: IntegrationProvider) {
+  if (isTestMode()) return;
   const db = getDb();
   await db.from("integration_settings")
     .update({ connected: false, credentials: null, updatedAt: new Date().toISOString() } as Record<string, unknown>)
@@ -361,6 +389,7 @@ export async function disconnectIntegration(companyId: number, provider: Integra
 }
 
 export async function getIntegrationsStatus(companyId: number) {
+  if (isTestMode()) return testGetIntegrationsStatus();
   const db = getDb();
   const { data } = await db.from("integration_settings")
     .select("provider, connected").eq("companyId", companyId);

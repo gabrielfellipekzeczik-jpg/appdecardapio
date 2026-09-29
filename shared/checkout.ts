@@ -1,14 +1,14 @@
-export type CheckoutMode = "live" | "demo";
+export type CheckoutMode = "live" | "unavailable";
 
 export function getCheckoutState(hasMercadoPagoCredentials: boolean) {
-  const mode: CheckoutMode = hasMercadoPagoCredentials ? "live" : "demo";
+  const mode: CheckoutMode = hasMercadoPagoCredentials ? "live" : "unavailable";
   return {
     mode,
     paymentEnabled: mode === "live",
-    title: mode === "live" ? "Pagamento seguro" : "Pagamento em demonstração",
+    title: mode === "live" ? "Pagamento seguro" : "Pagamento indisponível",
     notice: mode === "live"
       ? "Pix, crédito ou débito via Mercado Pago."
-      : "Pix, crédito e débito via Mercado Pago serão habilitados após configurar as chaves.",
-    buttonLabel: mode === "live" ? "Pagar agora" : "Pagamento indisponível nesta versão",
+      : "O Mercado Pago ainda não foi configurado para esta loja.",
+    buttonLabel: mode === "live" ? "Pagar agora" : "Pagamento indisponível",
   } as const;
 }

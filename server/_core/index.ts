@@ -10,6 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { registerWebhooks } from "../integrations/webhooks";
 import { serveStatic, setupVite } from "./vite";
+import { assertRuntimeEnv } from "./env";
 
 export function createApp() {
   const app = express();
@@ -46,6 +47,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  assertRuntimeEnv();
   const app = createApp();
   const server = createServer(app);
 

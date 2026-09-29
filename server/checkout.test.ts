@@ -4,10 +4,10 @@ import { getCheckoutState } from "../shared/checkout";
 describe("checkout state", () => {
   it("keeps payment unavailable without Mercado Pago credentials", () => {
     expect(getCheckoutState(false)).toMatchObject({
-      mode: "demo",
+      mode: "unavailable",
       paymentEnabled: false,
-      title: "Pagamento em demonstração",
-      buttonLabel: "Pagamento indisponível nesta versão",
+      title: "Pagamento indisponível",
+      buttonLabel: "Pagamento indisponível",
     });
   });
 

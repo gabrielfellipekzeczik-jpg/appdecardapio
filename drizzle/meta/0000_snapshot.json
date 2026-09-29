@@ -4,9 +4,9 @@
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.companies": {
+    "marmitaria.companies": {
       "name": "companies",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -53,7 +53,7 @@
         "templateId": {
           "name": "templateId",
           "type": "storefront_template",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true,
           "default": "'classic'"
@@ -67,7 +67,7 @@
         "status": {
           "name": "status",
           "type": "company_status",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true,
           "default": "'active'"
@@ -96,9 +96,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.customers": {
+    "marmitaria.customers": {
       "name": "customers",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -162,9 +162,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.expenses": {
+    "marmitaria.expenses": {
       "name": "expenses",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -240,9 +240,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.integration_settings": {
+    "marmitaria.integration_settings": {
       "name": "integration_settings",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -259,7 +259,7 @@
         "provider": {
           "name": "provider",
           "type": "integration_provider",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true
         },
@@ -313,9 +313,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.inventory_items": {
+    "marmitaria.inventory_items": {
       "name": "inventory_items",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -401,9 +401,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.inventory_movements": {
+    "marmitaria.inventory_movements": {
       "name": "inventory_movements",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -420,7 +420,7 @@
         "type": {
           "name": "type",
           "type": "inventory_movement_type",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true
         },
@@ -452,9 +452,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.menu_categories": {
+    "marmitaria.menu_categories": {
       "name": "menu_categories",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -526,9 +526,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.menu_items": {
+    "marmitaria.menu_items": {
       "name": "menu_items",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -640,9 +640,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.order_items": {
+    "marmitaria.order_items": {
       "name": "order_items",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -695,9 +695,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.orders": {
+    "marmitaria.orders": {
       "name": "orders",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -720,7 +720,7 @@
         "status": {
           "name": "status",
           "type": "order_status",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true,
           "default": "'received'"
@@ -728,7 +728,7 @@
         "paymentStatus": {
           "name": "paymentStatus",
           "type": "payment_status",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
@@ -857,9 +857,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.users": {
+    "marmitaria.users": {
       "name": "users",
-      "schema": "",
+      "schema": "marmitaria",
       "columns": {
         "id": {
           "name": "id",
@@ -900,7 +900,7 @@
         "role": {
           "name": "role",
           "type": "user_role",
-          "typeSchema": "public",
+          "typeSchema": "marmitaria",
           "primaryKey": false,
           "notNull": true,
           "default": "'user'"
@@ -945,17 +945,17 @@
     }
   },
   "enums": {
-    "public.company_status": {
+    "marmitaria.company_status": {
       "name": "company_status",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "active",
         "suspended"
       ]
     },
-    "public.integration_provider": {
+    "marmitaria.integration_provider": {
       "name": "integration_provider",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "mercadopago",
         "uber_direct",
@@ -964,18 +964,18 @@
         "messaging"
       ]
     },
-    "public.inventory_movement_type": {
+    "marmitaria.inventory_movement_type": {
       "name": "inventory_movement_type",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "in",
         "out",
         "adjustment"
       ]
     },
-    "public.order_status": {
+    "marmitaria.order_status": {
       "name": "order_status",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "received",
         "preparing",
@@ -985,9 +985,9 @@
         "cancelled"
       ]
     },
-    "public.payment_status": {
+    "marmitaria.payment_status": {
       "name": "payment_status",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "pending",
         "approved",
@@ -995,9 +995,9 @@
         "refunded"
       ]
     },
-    "public.storefront_template": {
+    "marmitaria.storefront_template": {
       "name": "storefront_template",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "classic",
         "modern",
@@ -1005,9 +1005,9 @@
         "premium"
       ]
     },
-    "public.user_role": {
+    "marmitaria.user_role": {
       "name": "user_role",
-      "schema": "public",
+      "schema": "marmitaria",
       "values": [
         "user",
         "admin"

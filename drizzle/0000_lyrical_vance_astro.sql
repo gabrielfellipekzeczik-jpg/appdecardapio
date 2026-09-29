@@ -1,11 +1,12 @@
-CREATE TYPE "public"."company_status" AS ENUM('active', 'suspended');--> statement-breakpoint
-CREATE TYPE "public"."integration_provider" AS ENUM('mercadopago', 'uber_direct', 'lalamove', 'own_courier', 'messaging');--> statement-breakpoint
-CREATE TYPE "public"."inventory_movement_type" AS ENUM('in', 'out', 'adjustment');--> statement-breakpoint
-CREATE TYPE "public"."order_status" AS ENUM('received', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."payment_status" AS ENUM('pending', 'approved', 'rejected', 'refunded');--> statement-breakpoint
-CREATE TYPE "public"."storefront_template" AS ENUM('classic', 'modern', 'cover', 'premium');--> statement-breakpoint
-CREATE TYPE "public"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
-CREATE TABLE "companies" (
+CREATE SCHEMA IF NOT EXISTS "marmitaria";--> statement-breakpoint
+CREATE TYPE "marmitaria"."company_status" AS ENUM('active', 'suspended');--> statement-breakpoint
+CREATE TYPE "marmitaria"."integration_provider" AS ENUM('mercadopago', 'uber_direct', 'lalamove', 'own_courier', 'messaging');--> statement-breakpoint
+CREATE TYPE "marmitaria"."inventory_movement_type" AS ENUM('in', 'out', 'adjustment');--> statement-breakpoint
+CREATE TYPE "marmitaria"."order_status" AS ENUM('received', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled');--> statement-breakpoint
+CREATE TYPE "marmitaria"."payment_status" AS ENUM('pending', 'approved', 'rejected', 'refunded');--> statement-breakpoint
+CREATE TYPE "marmitaria"."storefront_template" AS ENUM('classic', 'modern', 'cover', 'premium');--> statement-breakpoint
+CREATE TYPE "marmitaria"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
+CREATE TABLE "marmitaria"."companies" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"slug" varchar(60) NOT NULL,
 	"name" varchar(160) NOT NULL,
@@ -13,14 +14,14 @@ CREATE TABLE "companies" (
 	"logoUrl" text,
 	"heroImageUrl" text,
 	"primaryColor" varchar(20),
-	"templateId" "storefront_template" DEFAULT 'classic' NOT NULL,
+	"templateId" "marmitaria"."storefront_template" DEFAULT 'classic' NOT NULL,
 	"pickupAddress" text,
-	"status" "company_status" DEFAULT 'active' NOT NULL,
+	"status" "marmitaria"."company_status" DEFAULT 'active' NOT NULL,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "companies_slug_unique" UNIQUE("slug")
 );
 --> statement-breakpoint
-CREATE TABLE "customers" (
+CREATE TABLE "marmitaria"."customers" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"name" varchar(160) NOT NULL,
@@ -31,7 +32,7 @@ CREATE TABLE "customers" (
 	CONSTRAINT "customers_company_phone_unique" UNIQUE("companyId","phone")
 );
 --> statement-breakpoint
-CREATE TABLE "expenses" (
+CREATE TABLE "marmitaria"."expenses" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"description" varchar(200) NOT NULL,
@@ -42,10 +43,10 @@ CREATE TABLE "expenses" (
 	"createdAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "integration_settings" (
+CREATE TABLE "marmitaria"."integration_settings" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
-	"provider" "integration_provider" NOT NULL,
+	"provider" "marmitaria"."integration_provider" NOT NULL,
 	"connected" boolean DEFAULT false NOT NULL,
 	"credentials" text,
 	"metadata" text,
@@ -54,7 +55,7 @@ CREATE TABLE "integration_settings" (
 	CONSTRAINT "integration_settings_company_provider_unique" UNIQUE("companyId","provider")
 );
 --> statement-breakpoint
-CREATE TABLE "inventory_items" (
+CREATE TABLE "marmitaria"."inventory_items" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"name" varchar(160) NOT NULL,
@@ -66,16 +67,16 @@ CREATE TABLE "inventory_items" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "inventory_movements" (
+CREATE TABLE "marmitaria"."inventory_movements" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"inventoryItemId" integer NOT NULL,
-	"type" "inventory_movement_type" NOT NULL,
+	"type" "marmitaria"."inventory_movement_type" NOT NULL,
 	"quantity" numeric(12, 3) NOT NULL,
 	"reason" varchar(160) NOT NULL,
 	"occurredAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "menu_categories" (
+CREATE TABLE "marmitaria"."menu_categories" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"name" varchar(120) NOT NULL,
@@ -85,7 +86,7 @@ CREATE TABLE "menu_categories" (
 	"createdAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "menu_items" (
+CREATE TABLE "marmitaria"."menu_items" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"categoryId" integer NOT NULL,
@@ -99,7 +100,7 @@ CREATE TABLE "menu_items" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "order_items" (
+CREATE TABLE "marmitaria"."order_items" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"orderId" integer NOT NULL,
 	"menuItemId" integer NOT NULL,
@@ -109,12 +110,12 @@ CREATE TABLE "order_items" (
 	"observation" text
 );
 --> statement-breakpoint
-CREATE TABLE "orders" (
+CREATE TABLE "marmitaria"."orders" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"companyId" integer NOT NULL,
 	"customerId" integer NOT NULL,
-	"status" "order_status" DEFAULT 'received' NOT NULL,
-	"paymentStatus" "payment_status" DEFAULT 'pending' NOT NULL,
+	"status" "marmitaria"."order_status" DEFAULT 'received' NOT NULL,
+	"paymentStatus" "marmitaria"."payment_status" DEFAULT 'pending' NOT NULL,
 	"paymentMethod" varchar(40),
 	"subtotal" numeric(10, 2) NOT NULL,
 	"deliveryFee" numeric(10, 2) DEFAULT '0' NOT NULL,
@@ -128,25 +129,25 @@ CREATE TABLE "orders" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "users" (
+CREATE TABLE "marmitaria"."users" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"supabaseUserId" uuid NOT NULL,
 	"companyId" integer,
 	"name" text,
 	"email" varchar(320),
 	"loginMethod" varchar(64),
-	"role" "user_role" DEFAULT 'user' NOT NULL,
+	"role" "marmitaria"."user_role" DEFAULT 'user' NOT NULL,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
 	"updatedAt" timestamp DEFAULT now() NOT NULL,
 	"lastSignedIn" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "users_supabaseUserId_unique" UNIQUE("supabaseUserId")
 );
 --> statement-breakpoint
-CREATE INDEX "expenses_company_idx" ON "expenses" USING btree ("companyId");--> statement-breakpoint
-CREATE INDEX "inventory_items_company_idx" ON "inventory_items" USING btree ("companyId");--> statement-breakpoint
-CREATE INDEX "menu_categories_company_idx" ON "menu_categories" USING btree ("companyId");--> statement-breakpoint
-CREATE INDEX "menu_items_category_idx" ON "menu_items" USING btree ("categoryId");--> statement-breakpoint
-CREATE INDEX "menu_items_company_idx" ON "menu_items" USING btree ("companyId");--> statement-breakpoint
-CREATE INDEX "orders_status_idx" ON "orders" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "orders_created_idx" ON "orders" USING btree ("createdAt");--> statement-breakpoint
-CREATE INDEX "orders_company_idx" ON "orders" USING btree ("companyId");
+CREATE INDEX "marmitaria"."expenses_company_idx" ON "marmitaria"."expenses" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "marmitaria"."inventory_items_company_idx" ON "marmitaria"."inventory_items" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "marmitaria"."menu_categories_company_idx" ON "marmitaria"."menu_categories" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "marmitaria"."menu_items_category_idx" ON "marmitaria"."menu_items" USING btree ("categoryId");--> statement-breakpoint
+CREATE INDEX "marmitaria"."menu_items_company_idx" ON "marmitaria"."menu_items" USING btree ("companyId");--> statement-breakpoint
+CREATE INDEX "marmitaria"."orders_status_idx" ON "marmitaria"."orders" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "marmitaria"."orders_created_idx" ON "marmitaria"."orders" USING btree ("createdAt");--> statement-breakpoint
+CREATE INDEX "marmitaria"."orders_company_idx" ON "marmitaria"."orders" USING btree ("companyId");
