@@ -98,22 +98,25 @@ function FoodCarousel() {
   const imgs = [...foodImages, ...foodImages];
 
   return (
-    <div className="relative overflow-hidden rounded-3xl" style={{ height: 420 }}>
+    // mobile: altura menor e fotos mais estreitas; desktop: altura maior
+    <div className="relative overflow-hidden rounded-3xl" style={{ height: "clamp(160px, 40vw, 380px)" }}>
       {/* Gradient overlays */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-[#fbfaf7] to-transparent" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#fbfaf7] to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-[#fbfaf7] to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-[#fbfaf7] to-transparent" />
 
       <motion.div
         ref={trackRef}
-        className="flex h-full gap-3"
+        className="flex h-full gap-2"
         animate={{ x: ["0%", "-50%"] }}
-        transition={{ duration: 22, ease: "linear", repeat: Infinity }}
+        // mobile mais rápido: ~12s; desktop ~20s — usa vw para escalar
+        transition={{ duration: 14, ease: "linear", repeat: Infinity }}
       >
         {imgs.map((src, i) => (
           <motion.div
             key={i}
-            className="relative h-full flex-shrink-0 overflow-hidden rounded-2xl shadow-lg"
-            style={{ width: 260 }}
+            className="relative h-full flex-shrink-0 overflow-hidden rounded-xl shadow-md"
+            // mobile ~28vw, desktop 220px fixo
+            style={{ width: "clamp(120px, 28vw, 220px)" }}
             whileHover={{ scale: 1.03, zIndex: 20 }}
             transition={{ type: "spring", stiffness: 300, damping: 20 }}
           >
