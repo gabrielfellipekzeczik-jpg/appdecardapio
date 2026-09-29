@@ -4,7 +4,6 @@ export const ENV = {
 
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
-  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? "",
   // Getter (not a frozen value) so tests can set OWNER_EMAIL per-case without module reload tricks.
   get ownerEmail() { return (process.env.OWNER_EMAIL ?? "").toLowerCase(); },
 
@@ -27,7 +26,6 @@ export function assertRuntimeEnv(): void {
   const missing: string[] = [];
   if (!(ENV.supabaseUrl || process.env.VITE_SUPABASE_URL)) missing.push("SUPABASE_URL");
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
-  if (!ENV.supabaseJwtSecret) missing.push("SUPABASE_JWT_SECRET");
   if (!process.env.VITE_SUPABASE_URL) missing.push("VITE_SUPABASE_URL");
   if (!process.env.VITE_SUPABASE_ANON_KEY) missing.push("VITE_SUPABASE_ANON_KEY");
   if (missing.length) {
