@@ -3,10 +3,9 @@
   "outputDirectory": "dist/public",
   "installCommand": "pnpm install",
   "rewrites": [
-    { "source": "/api/mercadopago/oauth-callback(.*)", "destination": "/api/trpc" },
-    { "source": "/api/webhooks/mercadopago(.*)", "destination": "/api/trpc" },
-    { "source": "/api/mercadopago-oauth", "destination": "/api/mercadopago-oauth" },
-    { "source": "/api/trpc/(.*)", "destination": "/api/trpc" },
+    { "source": "/api/mercadopago/oauth-callback(.*)", "destination": "/api/_bundle" },
+    { "source": "/api/webhooks/mercadopago(.*)", "destination": "/api/_bundle" },
+    { "source": "/api/trpc/(.*)", "destination": "/api/_bundle" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
