@@ -1,17 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { CheckCircle2, CircleAlert, Utensils } from "lucide-react";
+import { CheckCircle2, CircleAlert, MailCheck, Utensils } from "lucide-react";
 import { motion } from "framer-motion";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 const RED      = "#ff1c2e";
-const RED_DARK = "#d4000f";
 const RED_BG   = "#fff0f1";
+
+// Tamanho do código enviado por e-mail. Precisa bater com
+// Supabase > Authentication > Providers > Email > "Email OTP Length" (padrão: 6).
+const OTP_LENGTH = 6;
+const RESEND_SECONDS = 60;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INPUT_CLASS = "rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30";
 
 const DIACRITICS_REGEX = new RegExp("[\\u0300-\\u036f]", "g");
 
@@ -20,104 +28,36 @@ function slugify(value: string) {
     .replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 60);
 }
 
-export default function CompanySignUp() {
-  const [, navigate] = useLocation();
-  const { user, loading: authLoading, isAuthenticated } = useAuth();
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [slugTouched, setSlugTouched] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pendingConfirmation, setPendingConfirmation] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+// Traduz os erros mais comuns (Supabase + falhas de rede/servidor) para algo que o usuário entende.
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const msg = raw.toLowerCase();
+  if (msg.includes("already registered") || msg.includes("already been registered"))
+    return "Este e-mail já está cadastrado. Use \"Entrar\" para acessar sua conta.";
+  if (msg.includes("rate limit") || msg.includes("too many") || msg.includes("security purposes"))
+    return "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente de novo.";
+  if (msg.includes("token has expired") || (msg.includes("invalid") && msg.includes("token")) || msg.includes("otp"))
+    return "Código inválido ou expirado. Confira os números ou peça um novo código.";
+  if (msg.includes("password") && (msg.includes("least") || msg.includes("weak") || msg.includes("short")))
+    return "A senha não atende aos requisitos de segurança. Use uma senha maior.";
+  if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("unexpected token")
+    || msg.includes("unable to transform") || msg.includes("json"))
+    return "Não foi possível falar com o servidor. Confira se o backend está no ar e se as variáveis de ambiente (SETUP.md) estão configuradas.";
+  return raw || "Não foi possível concluir o cadastro.";
+}
 
-  useEffect(() => { if (!slugTouched) setSlug(slugify(name)); }, [name, slugTouched]);
-
-  const slugCheck = trpc.company.checkSlug.useQuery({ slug }, { enabled: slug.length >= 3, staleTime: 5_000 });
-  const signUpMutation = trpc.company.signUp.useMutation();
-
-  const alreadyLoggedInNoCompany = isAuthenticated && user && !user.companyId;
-
-  const canSubmit = useMemo(() =>
-    name.length >= 2 && slug.length >= 3 && slugCheck.data?.available &&
-    (alreadyLoggedInNoCompany || (email.includes("@") && password.length >= 6)),
-    [name, slug, slugCheck.data, alreadyLoggedInNoCompany, email, password]);
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!canSubmit) return;
-    setError(null);
-    setSubmitting(true);
-    try {
-      if (!alreadyLoggedInNoCompany) {
-        const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
-        if (signUpError) throw signUpError;
-        if (!data.session) {
-          setPendingConfirmation(true);
-          setSubmitting(false);
-          return;
-        }
-      }
-      const result = await signUpMutation.mutateAsync({ name, slug });
-      navigate(`/${result.slug}/admin`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível concluir o cadastro.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (authLoading) return null;
-
-  if (pendingConfirmation) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f6f2] px-6"
-        style={{ background: `radial-gradient(ellipse at top, ${RED_BG} 0%, #f7f6f2 60%)` }}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <Card className="max-w-md border-0 text-center shadow-xl">
-            <CardContent className="p-8">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 400, delay: 0.2 }}
-              >
-                <CheckCircle2 className="mx-auto h-12 w-12" style={{ color: RED }} />
-              </motion.div>
-              <h1 className="mt-4 font-display text-2xl font-bold">Confirme seu email</h1>
-              <p className="mt-2 text-sm leading-6 text-[#776e63]">
-                Enviamos um link de confirmação para <strong>{email}</strong>.
-                Depois de confirmar, entre em{" "}
-                <a href="/admin-login" className="font-semibold underline" style={{ color: RED }}>
-                  /admin-login
-                </a>{" "}
-                com essa mesma conta pra terminar o cadastro do "{name}".
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-    );
-  }
-
+function Shell({ children }: { children: ReactNode }) {
   return (
     <div
       className="flex min-h-screen items-center justify-center px-4 py-12"
       style={{ background: `radial-gradient(ellipse at top, ${RED_BG} 0%, #f7f6f2 60%)` }}
     >
-      {/* Animated background blob */}
       <motion.div
         className="pointer-events-none fixed -top-40 -right-40 h-96 w-96 rounded-full blur-3xl"
         style={{ background: `radial-gradient(circle, ${RED}18 0%, transparent 70%)` }}
         animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0.9, 0.5] }}
         transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
       />
-
       <motion.div
         className="w-full max-w-md"
         initial={{ opacity: 0, y: 32 }}
@@ -125,143 +65,394 @@ export default function CompanySignUp() {
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
         <Card className="border-0 shadow-2xl">
-          <CardContent className="p-8">
-            {/* Logo */}
-            <motion.div
-              className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl"
-              style={{ backgroundColor: RED, boxShadow: `0 8px 24px ${RED}50` }}
-              whileHover={{ rotate: 10, scale: 1.1 }}
-              transition={{ type: "spring", stiffness: 400 }}
-            >
-              <Utensils className="h-6 w-6 text-white" />
-            </motion.div>
-
-            <h1 className="mt-5 text-center font-display text-2xl font-bold">
-              Cadastre seu restaurante
-            </h1>
-            <p className="mt-1 text-center text-sm text-[#776e63]">
-              Comece a vender em minutos.
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              {[
-                { label: "Nome do restaurante", key: "name" },
-              ].map((_, __, arr) => null)}
-
-              <motion.div
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-              >
-                <label className="field-label">Nome do restaurante</label>
-                <Input
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Casa na Marmita"
-                  className="rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30"
-                />
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 }}
-              >
-                <label className="field-label">Endereço do seu cardápio</label>
-                <div className="flex items-center gap-1 text-sm text-[#776e63]">
-                  <span className="whitespace-nowrap">seudominio.com/</span>
-                  <Input
-                    required
-                    value={slug}
-                    onChange={(e) => { setSlug(slugify(e.target.value)); setSlugTouched(true); }}
-                    className="rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30"
-                  />
-                </div>
-                {slug.length >= 3 && slugCheck.data && (
-                  <motion.p
-                    className={`mt-1 text-xs ${slugCheck.data.available ? "text-emerald-600" : "text-red-600"}`}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
-                    {slugCheck.data.available ? "✓ Disponível" : "✗ Esse endereço já está em uso"}
-                  </motion.p>
-                )}
-              </motion.div>
-
-              {!alreadyLoggedInNoCompany && (
-                <>
-                  <motion.div
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.2 }}
-                  >
-                    <label className="field-label">Email</label>
-                    <Input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@exemplo.com"
-                      className="rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30"
-                    />
-                  </motion.div>
-                  <motion.div
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.25 }}
-                  >
-                    <label className="field-label">Senha</label>
-                    <Input
-                      type="password"
-                      required
-                      minLength={6}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="mínimo 6 caracteres"
-                      className="rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30"
-                    />
-                  </motion.div>
-                </>
-              )}
-
-              {error && (
-                <motion.p
-                  className="flex items-center gap-2 text-sm text-red-600"
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <CircleAlert className="h-4 w-4" /> {error}
-                </motion.p>
-              )}
-
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <Button
-                  type="submit"
-                  disabled={!canSubmit || submitting}
-                  className="w-full rounded-xl text-white disabled:opacity-50"
-                  style={{ backgroundColor: RED, boxShadow: canSubmit ? `0 4px 18px ${RED}45` : "none" }}
-                >
-                  {submitting ? "Criando..." : "Criar meu cardápio"}
-                </Button>
-              </motion.div>
-
-              <p className="text-center text-xs text-[#776e63]">
-                Já tem conta?{" "}
-                <a href="/admin-login" className="font-semibold underline" style={{ color: RED }}>
-                  Entrar
-                </a>
-              </p>
-            </form>
-          </CardContent>
+          <CardContent className="p-8">{children}</CardContent>
         </Card>
       </motion.div>
     </div>
+  );
+}
+
+function ErrorLine({ message }: { message: string }) {
+  return (
+    <motion.p
+      role="alert"
+      className="flex items-start gap-2 text-sm text-red-600"
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /> <span>{message}</span>
+    </motion.p>
+  );
+}
+
+export default function CompanySignUp() {
+  const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
+
+  const [step, setStep] = useState<"form" | "verify">("form");
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => { if (!slugTouched) setSlug(slugify(name)); }, [name, slugTouched]);
+
+  // Contagem regressiva para liberar o "Reenviar código".
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendIn]);
+
+  const slugCheck = trpc.company.checkSlug.useQuery(
+    { slug },
+    { enabled: slug.length >= 3, staleTime: 5_000, retry: 1 },
+  );
+  const signUpMutation = trpc.company.signUp.useMutation();
+
+  const alreadyLoggedInNoCompany = Boolean(isAuthenticated && user && !user.companyId);
+
+  const cleanEmail = email.trim().toLowerCase();
+  const emailValid = EMAIL_REGEX.test(cleanEmail);
+  const passwordValid = password.length >= 6;
+  const passwordsMatch = password === confirmPassword;
+  const slugTaken = slugCheck.data?.available === false;
+
+  // O botão NÃO depende mais da resposta do servidor: antes, se a consulta do endereço
+  // falhasse (servidor fora do ar, variável faltando), o botão ficava desabilitado para sempre.
+  // A disponibilidade do endereço é conferida de novo, de forma obrigatória, ao enviar.
+  const canSubmit = useMemo(
+    () =>
+      name.trim().length >= 2 &&
+      slug.length >= 3 &&
+      !slugTaken &&
+      (alreadyLoggedInNoCompany ||
+        (emailValid && passwordValid && confirmPassword.length > 0 && passwordsMatch)),
+    [name, slug, slugTaken, alreadyLoggedInNoCompany, emailValid, passwordValid, confirmPassword, passwordsMatch],
+  );
+
+  // Cria a empresa depois que o e-mail foi confirmado e a sessão existe.
+  const finishCompany = async () => {
+    const result = await signUpMutation.mutateAsync({ name: name.trim(), slug });
+    await utils.auth.me.invalidate();
+    navigate(`/${result.slug}/admin`);
+  };
+
+  const startCooldown = () => setResendIn(RESEND_SECONDS);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canSubmit || submitting) return;
+    setError(null);
+    setInfo(null);
+    setSubmitting(true);
+    try {
+      // 1) Confere o endereço no servidor ANTES de criar a conta (evita conta sem empresa).
+      const slugResult = await utils.company.checkSlug.fetch({ slug });
+      if (!slugResult.available) {
+        setError("Esse endereço já está em uso ou não é válido. Escolha outro.");
+        return;
+      }
+
+      // 2) Usuário já logado, só falta a empresa.
+      if (alreadyLoggedInNoCompany) {
+        await finishCompany();
+        return;
+      }
+
+      // 3) Cria a conta; o Supabase envia o código por e-mail.
+      const { data, error: signUpError } = await supabase.auth.signUp({ email: cleanEmail, password });
+      if (signUpError) throw signUpError;
+
+      // E-mail já cadastrado e confirmado: o Supabase não dá erro, devolve um usuário sem "identities".
+      if (data.user && (data.user.identities?.length ?? 0) === 0) {
+        setError("Este e-mail já está cadastrado. Use \"Entrar\" para acessar sua conta.");
+        return;
+      }
+
+      // Se já veio sessão, a confirmação por e-mail está DESLIGADA no Supabase.
+      if (data.session) {
+        console.warn("[SignUp] Confirmação por e-mail desativada no Supabase; nenhum código foi enviado.");
+        await finishCompany();
+        return;
+      }
+
+      setCode("");
+      setStep("verify");
+      startCooldown();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleVerify = async (token: string = code) => {
+    if (token.length !== OTP_LENGTH || submitting) return;
+    setError(null);
+    setInfo(null);
+    setSubmitting(true);
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token,
+        type: "signup",
+      });
+      if (verifyError) throw verifyError;
+      if (!data.session) throw new Error("Não foi possível iniciar a sessão após confirmar o e-mail.");
+    } catch (err) {
+      setError(friendlyError(err));
+      setCode("");
+      setSubmitting(false);
+      return;
+    }
+
+    // E-mail confirmado. Se a criação da empresa falhar, volta ao formulário já logado
+    // (só nome + endereço) para tentar de novo sem precisar de outro código.
+    try {
+      await finishCompany();
+    } catch (err) {
+      setStep("form");
+      setError(friendlyError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendIn > 0 || submitting) return;
+    setError(null);
+    setInfo(null);
+    const { error: resendError } = await supabase.auth.resend({ type: "signup", email: cleanEmail });
+    if (resendError) {
+      setError(friendlyError(resendError));
+      return;
+    }
+    setCode("");
+    setInfo("Enviamos um novo código. O anterior deixou de valer.");
+    startCooldown();
+  };
+
+  if (authLoading && step === "form" && !submitting) return null;
+
+  // ───────────────────────── Etapa 2: confirmar o código ─────────────────────────
+  if (step === "verify") {
+    return (
+      <Shell>
+        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, delay: 0.1 }}>
+          <MailCheck className="mx-auto h-12 w-12" style={{ color: RED }} />
+        </motion.div>
+        <h1 className="mt-4 text-center font-display text-2xl font-bold">Confirme seu e-mail</h1>
+        <p className="mt-2 text-center text-sm leading-6 text-[#776e63]">
+          Enviamos um código de {OTP_LENGTH} dígitos para <strong>{cleanEmail}</strong>.
+          Digite-o abaixo para criar o cardápio de "{name.trim()}".
+        </p>
+
+        <div className="mt-6 flex flex-col items-center gap-4">
+          <InputOTP
+            maxLength={OTP_LENGTH}
+            value={code}
+            onChange={(value) => { setCode(value); if (error) setError(null); }}
+            onComplete={(value) => handleVerify(value)}
+            pattern={REGEXP_ONLY_DIGITS}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            disabled={submitting}
+          >
+            <InputOTPGroup>
+              {Array.from({ length: OTP_LENGTH }, (_, index) => (
+                <InputOTPSlot key={index} index={index} className="h-12 w-11 text-lg" />
+              ))}
+            </InputOTPGroup>
+          </InputOTP>
+
+          {error && <ErrorLine message={error} />}
+          {info && (
+            <p className="flex items-center gap-2 text-sm text-emerald-600">
+              <CheckCircle2 className="h-4 w-4" /> {info}
+            </p>
+          )}
+
+          <Button
+            type="button"
+            onClick={() => handleVerify()}
+            disabled={code.length !== OTP_LENGTH || submitting}
+            className="w-full rounded-xl text-white disabled:opacity-50"
+            style={{ backgroundColor: RED, boxShadow: code.length === OTP_LENGTH ? `0 4px 18px ${RED}45` : "none" }}
+          >
+            {submitting ? "Confirmando..." : "Confirmar e criar meu cardápio"}
+          </Button>
+
+          <div className="flex w-full items-center justify-between text-xs text-[#776e63]">
+            <button
+              type="button"
+              onClick={() => { setStep("form"); setCode(""); setError(null); setInfo(null); }}
+              className="font-semibold underline"
+              style={{ color: RED }}
+            >
+              Corrigir e-mail
+            </button>
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendIn > 0 || submitting}
+              className="font-semibold underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+              style={{ color: RED }}
+            >
+              {resendIn > 0 ? `Reenviar código em ${resendIn}s` : "Reenviar código"}
+            </button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  // ───────────────────────── Etapa 1: formulário ─────────────────────────
+  return (
+    <Shell>
+      <motion.div
+        className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl"
+        style={{ backgroundColor: RED, boxShadow: `0 8px 24px ${RED}50` }}
+        whileHover={{ rotate: 10, scale: 1.1 }}
+        transition={{ type: "spring", stiffness: 400 }}
+      >
+        <Utensils className="h-6 w-6 text-white" />
+      </motion.div>
+
+      <h1 className="mt-5 text-center font-display text-2xl font-bold">Cadastre seu restaurante</h1>
+      <p className="mt-1 text-center text-sm text-[#776e63]">Comece a vender em minutos.</p>
+
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
+        <div>
+          <label className="field-label" htmlFor="signup-name">Nome do restaurante</label>
+          <Input
+            id="signup-name"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Casa na Marmita"
+            className={INPUT_CLASS}
+          />
+        </div>
+
+        <div>
+          <label className="field-label" htmlFor="signup-slug">Endereço do seu cardápio</label>
+          <div className="flex items-center gap-1 text-sm text-[#776e63]">
+            <span className="whitespace-nowrap">seudominio.com/</span>
+            <Input
+              id="signup-slug"
+              required
+              value={slug}
+              onChange={(e) => { setSlug(slugify(e.target.value)); setSlugTouched(true); }}
+              className={INPUT_CLASS}
+            />
+          </div>
+          {slug.length >= 3 && (
+            <p
+              className={`mt-1 text-xs ${
+                slugTaken ? "text-red-600" : slugCheck.data?.available ? "text-emerald-600" : "text-[#9a9185]"
+              }`}
+            >
+              {slugCheck.isFetching
+                ? "Verificando..."
+                : slugCheck.isError
+                  ? "Não foi possível verificar agora; conferiremos ao criar."
+                  : slugTaken
+                    ? "✗ Esse endereço já está em uso ou não é válido"
+                    : slugCheck.data?.available
+                      ? "✓ Disponível"
+                      : null}
+            </p>
+          )}
+        </div>
+
+        {!alreadyLoggedInNoCompany && (
+          <>
+            <div>
+              <label className="field-label" htmlFor="signup-email">E-mail</label>
+              <Input
+                id="signup-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="voce@exemplo.com"
+                className={INPUT_CLASS}
+              />
+              {email.length > 0 && !emailValid && (
+                <p className="mt-1 text-xs text-red-600">Digite um e-mail válido.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="signup-password">Senha</label>
+              <Input
+                id="signup-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="mínimo 6 caracteres"
+                className={INPUT_CLASS}
+              />
+              {password.length > 0 && !passwordValid && (
+                <p className="mt-1 text-xs text-red-600">A senha precisa ter pelo menos 6 caracteres.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="signup-confirm-password">Repita a senha</label>
+              <Input
+                id="signup-confirm-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="digite a senha novamente"
+                aria-invalid={confirmPassword.length > 0 && !passwordsMatch}
+                className={INPUT_CLASS}
+              />
+              {confirmPassword.length > 0 && (
+                <p className={`mt-1 text-xs ${passwordsMatch ? "text-emerald-600" : "text-red-600"}`}>
+                  {passwordsMatch ? "✓ As senhas coincidem" : "✗ As senhas não coincidem"}
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {error && <ErrorLine message={error} />}
+
+        <motion.div whileHover={{ scale: canSubmit ? 1.02 : 1 }} whileTap={{ scale: canSubmit ? 0.98 : 1 }}>
+          <Button
+            type="submit"
+            disabled={!canSubmit || submitting}
+            className="w-full rounded-xl text-white disabled:opacity-50"
+            style={{ backgroundColor: RED, boxShadow: canSubmit ? `0 4px 18px ${RED}45` : "none" }}
+          >
+            {submitting ? "Aguarde..." : alreadyLoggedInNoCompany ? "Criar meu cardápio" : "Continuar"}
+          </Button>
+        </motion.div>
+
+        <p className="text-center text-xs text-[#776e63]">
+          Já tem conta?{" "}
+          <a href="/admin-login" className="font-semibold underline" style={{ color: RED }}>
+            Entrar
+          </a>
+        </p>
+      </form>
+    </Shell>
   );
 }

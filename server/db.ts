@@ -150,12 +150,14 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (user.companyId !== undefined) values.companyId = user.companyId;
   if (user.role !== undefined) values.role = user.role;
 
-  await db.from("users").upsert(values as Record<string, unknown>, { onConflict: "supabaseUserId" });
+  const { error } = await db.from("users").upsert(values as Record<string, unknown>, { onConflict: "supabaseUserId" });
+  if (error) throw new Error(`[DB] Falha ao salvar usuário: ${error.message}`);
 }
 
 export async function getUserBySupabaseId(supabaseUserId: string): Promise<User | undefined> {
   const db = getDb();
-  const { data } = await db.from("users").select("*").eq("supabaseUserId", supabaseUserId).limit(1).single();
+  const { data, error } = await db.from("users").select("*").eq("supabaseUserId", supabaseUserId).limit(1).maybeSingle();
+  if (error) throw new Error(`[DB] Falha ao consultar usuário: ${error.message}`);
   return (data as User) ?? undefined;
 }
 

@@ -9,7 +9,9 @@ export function isSlugAvailableFormat(slug: string): boolean {
 
 export async function getCompanyBySlug(slug: string): Promise<Company | undefined> {
   const db = getDb();
-  const { data } = await db.from("companies").select("*").eq("slug", slug).limit(1).single();
+  const { data, error } = await db.from("companies").select("*").eq("slug", slug).limit(1).maybeSingle();
+  // Antes o erro era engolido e o slug aparecia como "disponível" mesmo com o banco mal configurado.
+  if (error) throw new Error(`[DB] Falha ao consultar empresas: ${error.message}`);
   return (data as Company) ?? undefined;
 }
 
@@ -21,8 +23,8 @@ export async function getCompanyById(id: number): Promise<Company | undefined> {
 
 export async function createCompany(input: { slug: string; name: string; tagline?: string }): Promise<Company> {
   const db = getDb();
-  const { data } = await db.from("companies").insert(input as Record<string, unknown>).select("*").single();
-  if (!data) throw new Error("Failed to create company");
+  const { data, error } = await db.from("companies").insert(input as Record<string, unknown>).select("*").single();
+  if (error || !data) throw new Error(`[DB] Falha ao criar empresa: ${error?.message ?? "sem retorno"}`);
   return data as Company;
 }
 

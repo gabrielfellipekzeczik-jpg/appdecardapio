@@ -57,9 +57,21 @@ A `SUPABASE_SERVICE_ROLE_KEY` só pode existir no backend. Nunca a coloque em c�
 1. Crie um projeto no Supabase.
 2. Em **Project Settings → API**, copie Project URL, anon key e service role key.
 3. Em **Project Settings → JWT Keys**, obtenha o segredo JWT compatível com a validação HS256 usada pelo backend.
-4. Em **Authentication → Providers**, ative Email/Password.
-5. Em **Authentication → URL Configuration**, adicione `http://localhost:3000` e o domínio final.
-6. Em **Project Settings → API → Exposed schemas**, adicione `marmitaria`.
+4. Em **Authentication → Providers → Email**, ative Email/Password e deixe **Confirm email** LIGADO. Sem isso o Supabase não envia código e o cadastro entra direto, sem confirmação.
+5. Em **Authentication → Emails → Templates → Confirm signup**, troque o corpo para mostrar o código de 6 dígitos (o padrão só traz um link):
+
+   ```html
+   <h2>Confirme seu e-mail</h2>
+   <p>Seu código de confirmação é:</p>
+   <p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{ .Token }}</p>
+   <p>Ele expira em 1 hora. Se não foi você, ignore este e-mail.</p>
+   ```
+
+   O tamanho do código (padrão 6) fica em **Authentication → Providers → Email → Email OTP Length**; se mudar, ajuste `OTP_LENGTH` em `client/src/pages/CompanySignUp.tsx`.
+6. Em **Authentication → URL Configuration**, adicione `http://localhost:3000` e o domínio final.
+7. Em **Project Settings → API → Exposed schemas**, adicione `marmitaria`.
+
+> O e-mail padrão do Supabase tem limite baixo de envios por hora (poucos e-mails). Para produção, configure um SMTP próprio em **Authentication → Emails → SMTP Settings**.
 
 ## 5. Aplicar o banco
 
@@ -81,6 +93,8 @@ marmitaria.orders
 marmitaria.order_items
 marmitaria.integration_settings
 ```
+
+Depois, no SQL Editor do Supabase, rode o conteúdo de `supabase-grants.sql`. Sem isso o backend recebe `permission denied for schema marmitaria`.
 
 Se a migração antiga já tiver criado tabelas em `public`, faça backup e migre os dados antes de remover ou renomear as tabelas antigas. Não misture as duas estruturas sem revisar os dados.
 
@@ -108,10 +122,10 @@ Abra:
 http://localhost:3000/cadastrar
 ```
 
-1. Crie a conta.
-2. Confirme o email se o Supabase exigir confirmação.
-3. Entre em `/admin-login`.
-4. Finalize o cadastro da empresa.
+1. Preencha nome, endereço, e-mail, senha e repita a senha.
+2. Digite o código de 6 dígitos que chegou no e-mail.
+3. A empresa é criada e você cai direto no painel (`/seu-endereco/admin`).
+4. Nos próximos acessos, entre em `/admin-login`.
 5. Cadastre categorias e itens do cardápio pelo painel/banco.
 6. Use o email definido em `OWNER_EMAIL` para acessar o Super Admin.
 
@@ -196,6 +210,18 @@ Crie a empresa pelo `/cadastrar` e verifique se ela está em `marmitaria.compani
 ### O cardápio está vazio
 
 Cadastre categorias e itens reais em `marmitaria.menu_categories` e `marmitaria.menu_items`, usando o `companyId` correto.
+
+### O botão "Continuar" do cadastro não habilita
+
+Ele só exige nome, endereço (3+ caracteres), e-mail válido, senha com 6+ caracteres e a confirmação igual à senha. Se o endereço aparecer como "✗ já está em uso", troque o endereço. Ao clicar, se aparecer "Não foi possível falar com o servidor", o `/api/trpc` está fora do ar ou sem variáveis de ambiente (veja a lista acima e o log do servidor/Vercel).
+
+### O código não chega por e-mail
+
+Confira **Confirm email** ligado e o template **Confirm signup** com `{{ .Token }}` (passo 5 da seção 4), a caixa de spam e o limite de envios do e-mail padrão do Supabase.
+
+### Aparece "permission denied for schema marmitaria"
+
+Rode `supabase-grants.sql` no SQL Editor e confirme que `marmitaria` está em **Exposed schemas**.
 
 ### O login falha
 

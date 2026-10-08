@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { trpc } from "@/lib/trpc";
 
 const RED    = "#ff1c2e";
 const RED_BG = "#fff0f1";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,13 +23,35 @@ export default function AdminLogin() {
     event.preventDefault();
     setError(null);
     setLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (signInError) {
-      setError("Email ou senha inválidos.");
-      return;
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (signInError) {
+        const msg = signInError.message.toLowerCase();
+        setError(
+          msg.includes("not confirmed")
+            ? "Você ainda não confirmou o e-mail. Vá em \"Cadastrar restaurante\" e use o mesmo e-mail para receber um novo código."
+            : "Email ou senha inválidos.",
+        );
+        return;
+      }
+
+      // "/admin" não é uma rota: o painel fica em /:slug/admin. Descobre para onde ir.
+      const me = await utils.auth.me.fetch();
+      if (me?.companyId) {
+        const company = await utils.company.mine.fetch();
+        navigate(company ? `/${company.slug}/admin` : "/cadastrar");
+      } else if (me?.isSuperAdmin) {
+        navigate("/super-admin");
+      } else {
+        // Conta criada e confirmada, mas sem restaurante: termina o cadastro.
+        navigate("/cadastrar");
+      }
+    } catch (err) {
+      console.error("[AdminLogin]", err);
+      setError("Login feito, mas não foi possível carregar seu painel. Confira se o servidor está no ar e tente de novo.");
+    } finally {
+      setLoading(false);
     }
-    navigate("/admin");
   };
 
   return (
