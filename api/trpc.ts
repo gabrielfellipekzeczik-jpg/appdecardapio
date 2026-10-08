@@ -141,10 +141,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v ?? ""])
     ),
     body: req.method !== "GET" && req.method !== "HEAD"
-      ? await new Promise<Buffer>((resolve) => {
+      ? await new Promise<Uint8Array>((resolve) => {
           const chunks: Buffer[] = [];
           req.on("data", (chunk: Buffer) => chunks.push(chunk));
-          req.on("end", () => resolve(Buffer.concat(chunks)));
+          req.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+          });
         })
       : undefined,
   });
