@@ -1,11 +1,11 @@
-// api/trpc.ts — Vercel Serverless Function
+// server/vercel-handler.ts — fonte da função serverless da Vercel (empacotada em api/trpc.js por `pnpm run build:api`)
 // Serve todas as chamadas tRPC que antes iam para o Express.
 // Substitui server/_core/index.ts + Express sem nenhuma mudança no frontend.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { appRouter } from "../server/routers";
-import { createContext } from "../server/_core/context";
-import { assertRuntimeEnv } from "../server/_core/env";
+import { appRouter } from "./routers";
+import { createContext } from "./_core/context";
+import { assertRuntimeEnv } from "./_core/env";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // Handler de OAuth callback do Mercado Pago (antes era Express route em webhooks.ts)
@@ -29,8 +29,8 @@ async function handleMercadoPagoCallback(req: IncomingMessage, res: ServerRespon
     return;
   }
 
-  const { getCompanyById } = await import("../server/companies");
-  const { saveIntegrationCredentials } = await import("../server/db");
+  const { getCompanyById } = await import("./companies");
+  const { saveIntegrationCredentials } = await import("./db");
   const company = await getCompanyById(companyId);
   const redirectBase = company ? `/${company.slug}/admin/integracoes` : "/admin-login";
 
@@ -88,7 +88,7 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     if (topic && topic !== "payment") return;
     if (!paymentId || !companyId) return;
 
-    const { getIntegrationCredentials, setOrderPayment, findOrderByExternalPaymentId } = await import("../server/db");
+    const { getIntegrationCredentials, setOrderPayment, findOrderByExternalPaymentId } = await import("./db");
     const credentials = await getIntegrationCredentials<{ accessToken: string }>(companyId, "mercadopago");
     if (!credentials?.accessToken) return;
 
@@ -141,13 +141,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v ?? ""])
     ),
     body: req.method !== "GET" && req.method !== "HEAD"
-      ? await new Promise<Uint8Array>((resolve) => {
+      ? await new Promise<Buffer>((resolve) => {
           const chunks: Buffer[] = [];
           req.on("data", (chunk: Buffer) => chunks.push(chunk));
-          req.on("end", () => {
-            const buf = Buffer.concat(chunks);
-            resolve(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-          });
+          req.on("end", () => resolve(Buffer.concat(chunks)));
         })
       : undefined,
   });

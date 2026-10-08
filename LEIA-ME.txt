@@ -1,0 +1,6 @@
+1) Copie estes arquivos para a pasta do projeto, mantendo as pastas (substitui os existentes).
+2) No PowerShell, na pasta do projeto:
+   git rm api/trpc.ts api/index.ts
+   git add .
+   git commit -m "Corrige API na Vercel: empacota o servidor em api/trpc.js"
+   git push

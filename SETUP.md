@@ -215,6 +215,10 @@ Cadastre categorias e itens reais em `marmitaria.menu_categories` e `marmitaria.
 
 Ele só exige nome, endereço (3+ caracteres), e-mail válido, senha com 6+ caracteres e a confirmação igual à senha. Se o endereço aparecer como "✗ já está em uso", troque o endereço. Ao clicar, se aparecer "Não foi possível falar com o servidor", o `/api/trpc` está fora do ar ou sem variáveis de ambiente (veja a lista acima e o log do servidor/Vercel).
 
+### O cadastro mostra "Unexpected token '<'" / a API responde 500 na Vercel
+
+A função da API não subiu. Olhe **Vercel → Logs**: `ERR_MODULE_NOT_FOUND` significa que `api/trpc.js` (o servidor empacotado) está faltando ou desatualizado. Ele é gerado por `pnpm run build:api` a partir de `server/vercel-handler.ts` e também é regenerado no build da Vercel. Depois de mexer em qualquer arquivo de `server/`, rode `pnpm run build:api` e faça commit do `api/trpc.js`. Não recrie `api/trpc.ts` nem `api/index.ts`.
+
 ### O código não chega por e-mail
 
 Confira **Confirm email** ligado e o template **Confirm signup** com `{{ .Token }}` (passo 5 da seção 4), a caixa de spam e o limite de envios do e-mail padrão do Supabase.
