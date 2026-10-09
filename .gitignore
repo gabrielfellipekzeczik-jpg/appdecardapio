@@ -115,6 +115,3 @@ client/public/__manus__/version.json
 
 # Claude Code local session settings (personal, not project config)
 .claude/settings.local.json
-
-# Vercel function bundle (generated at build time)
-api/_bundle.js

@@ -42,7 +42,7 @@ function friendlyError(err: unknown): string {
     return "A senha não atende aos requisitos de segurança. Use uma senha maior.";
   if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("unexpected token")
     || msg.includes("unable to transform") || msg.includes("json"))
-    return `[Erro de servidor] ${raw}`;
+    return "Não foi possível falar com o servidor. Confira se o backend está no ar e se as variáveis de ambiente (SETUP.md) estão configuradas.";
   return raw || "Não foi possível concluir o cadastro.";
 }
 
