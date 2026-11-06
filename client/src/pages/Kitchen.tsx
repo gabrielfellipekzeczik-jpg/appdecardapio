@@ -1,12 +1,15 @@
+import { usePageTitle } from "@/lib/usePageTitle";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "wouter";
-import { ArrowLeft, ChefHat, CheckCircle2, ChevronRight, Clock, Package, RefreshCw, Truck, Utensils } from "lucide-react";
+import { ArrowLeft, ChefHat, CheckCircle2, ChevronLeft, ChevronRight, Clock, Package, RefreshCw, Truck, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { findNewOrderIds } from "@shared/order-alerts";
+import { isReadyForKitchen } from "@shared/payment-messages";
+import { isPickupOrder } from "@shared/store-rules";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +24,7 @@ type KitchenOrder = {
   status: KitchenStatus;
   createdAt: Date;
   notes: string | null;
+  pickup: boolean;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -71,6 +75,12 @@ const NEXT_STATUS: Record<KitchenStatus, KitchenStatus | "delivered"> = {
   out_for_delivery: "delivered",
 };
 
+const PREV_STATUS: Partial<Record<KitchenStatus, KitchenStatus>> = {
+  preparing: "received",
+  ready: "preparing",
+  out_for_delivery: "ready",
+};
+
 const NEXT_LABEL: Record<KitchenStatus, string> = {
   received: "Iniciar preparo",
   preparing: "Marcar pronto",
@@ -118,7 +128,11 @@ function OrderCard({
   onAdvance: (id: number, next: KitchenStatus | "delivered") => void;
   advancing: boolean;
 }) {
-  const next = NEXT_STATUS[order.status];
+  // Retirada não passa pela coluna "saiu para entrega".
+  const next =
+    order.pickup && order.status === "ready"
+      ? "delivered"
+      : NEXT_STATUS[order.status];
   const warnAfter = order.status === "received" ? 3 : order.status === "preparing" ? 20 : 5;
 
   return (
@@ -131,6 +145,7 @@ function OrderCard({
           <div className="flex items-center gap-2">
             <span className={`text-sm font-bold ${column.color}`}>#{order.id}</span>
             <span className="text-sm font-semibold text-[#29251f]">{order.customer}</span>
+            {order.pickup && <Badge className="border-0 bg-[#fff0d7] text-[10px] text-[#a05c32]">Retirada</Badge>}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[#776e63]">{order.items}</p>
         </div>
@@ -150,6 +165,19 @@ function OrderCard({
           <span className="text-sm font-semibold text-[#29251f]">{order.total}</span>
           <span className="text-xs text-[#a79b8d]">· {order.method}</span>
         </div>
+        <div className="flex items-center gap-1.5">
+        {PREV_STATUS[order.status] && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={advancing}
+            title="Voltar ao status anterior"
+            onClick={() => onAdvance(order.id, PREV_STATUS[order.status]!)}
+            className="h-7 rounded-lg border-[#e5e0d7] px-2 text-xs text-[#776e63]"
+          >
+            <ChevronLeft className="mr-0.5 h-3 w-3" /> Voltar
+          </Button>
+        )}
         {next !== "delivered" ? (
           <Button
             size="sm"
@@ -173,10 +201,11 @@ function OrderCard({
             onClick={() => onAdvance(order.id, "delivered")}
             className="h-7 rounded-lg bg-[#a05c32] px-3 text-xs font-semibold text-white hover:bg-[#8a4e2b]"
           >
-            {advancing ? "…" : "Entregar"}
+            {advancing ? "…" : order.pickup ? "Retirado" : "Entregar"}
             <CheckCircle2 className="ml-1 h-3 w-3" />
           </Button>
         )}
+        </div>
       </div>
     </div>
   );
@@ -241,6 +270,7 @@ export default function Kitchen() {
   const { slug = "" } = useParams<{ slug: string }>();
   const { user, loading, isAuthenticated } = useAuth();
   const companyQuery = trpc.company.mine.useQuery(undefined, { enabled: isAuthenticated });
+  usePageTitle(companyQuery.data?.name && `Cozinha · ${companyQuery.data.name}`);
   const ordersQuery = trpc.orders.recent.useQuery(
     { limit: 50 },
     { staleTime: 10_000, refetchInterval: 10_000, enabled: isAuthenticated }
@@ -256,7 +286,10 @@ export default function Kitchen() {
 
   // Alerta sonoro + toast em novo pedido
   useEffect(() => {
-    const currentIds = ordersQuery.data?.map(({ order }) => order.id) ?? [];
+    const currentIds =
+      ordersQuery.data
+        ?.filter(({ order }) => isReadyForKitchen(order))
+        .map(({ order }) => order.id) ?? [];
     const newIds = findNewOrderIds(seenOrderIds.current, currentIds);
     if (seenOrderIds.current.length > 0 && newIds.length > 0) {
       toast.info(`${newIds.length === 1 ? "Novo pedido" : `${newIds.length} novos pedidos`}!`, {
@@ -290,7 +323,9 @@ export default function Kitchen() {
         id,
         status: next as "received" | "preparing" | "ready" | "out_for_delivery" | "delivered",
       });
-      toast.success(`Pedido #${id} avançado.`);
+      toast.success(`Pedido #${id} atualizado.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar o pedido.");
     } finally {
       setAdvancingId(null);
     }
@@ -299,7 +334,7 @@ export default function Kitchen() {
   // Converte os dados da query para KitchenOrder
   const activeStatuses = new Set<string>(["received", "preparing", "ready", "out_for_delivery"]);
   const kitchenOrders: KitchenOrder[] = (ordersQuery.data ?? [])
-    .filter(({ order }) => activeStatuses.has(order.status))
+    .filter(({ order }) => activeStatuses.has(order.status) && isReadyForKitchen(order))
     .map(({ order, customer }) => ({
       id: order.id,
       customer: customer?.name ?? "Cliente",
@@ -309,6 +344,7 @@ export default function Kitchen() {
       status: order.status as KitchenStatus,
       createdAt: new Date(order.createdAt),
       notes: order.notes ?? null,
+      pickup: isPickupOrder(order),
     }));
 
   const ordersByStatus = COLUMNS.reduce<Record<KitchenStatus, KitchenOrder[]>>(

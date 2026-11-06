@@ -4,7 +4,11 @@ declare global {
   interface Window {
     MercadoPago?: new (publicKey: string) => {
       bricks: () => {
-        create: (type: "payment", containerId: string, settings: Record<string, unknown>) => Promise<{ unmount: () => void }>;
+        create: (
+          type: "payment",
+          containerId: string,
+          settings: Record<string, unknown>
+        ) => Promise<{ unmount: () => void }>;
       };
     };
   }
@@ -19,13 +23,16 @@ function loadSdk(): Promise<void> {
     const existing = document.querySelector(`script[src="${SDK_SRC}"]`);
     if (existing) {
       existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Falha ao carregar o SDK do Mercado Pago")));
+      existing.addEventListener("error", () =>
+        reject(new Error("Falha ao carregar o SDK do Mercado Pago"))
+      );
       return;
     }
     const script = document.createElement("script");
     script.src = SDK_SRC;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Falha ao carregar o SDK do Mercado Pago"));
+    script.onerror = () =>
+      reject(new Error("Falha ao carregar o SDK do Mercado Pago"));
     document.head.appendChild(script);
   });
 }
@@ -34,14 +41,31 @@ export type MercadoPagoBrickProps = {
   publicKey: string;
   amount: number;
   payerEmail: string;
-  onSubmit: (formData: { payment_method_id: string; token?: string; installments?: number; issuer_id?: string; payer: { email: string } }) => Promise<void>;
+  onSubmit: (formData: {
+    payment_method_id: string;
+    token?: string;
+    installments?: number;
+    issuer_id?: string;
+    payer: { email: string };
+  }) => Promise<void>;
   onError?: (message: string) => void;
 };
 
 /** Mounts Mercado Pago's Payment Brick (Pix/crédito/débito) inline in the checkout sheet. */
-export function MercadoPagoBrick({ publicKey, amount, payerEmail, onSubmit, onError }: MercadoPagoBrickProps) {
+export function MercadoPagoBrick({
+  publicKey,
+  amount,
+  payerEmail,
+  onSubmit,
+  onError,
+}: MercadoPagoBrickProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
+  // Keep callbacks in refs so re-renders never remount the Brick (which wipes what the buyer typed).
+  const onSubmitRef = useRef(onSubmit);
+  const onErrorRef = useRef(onError);
+  onSubmitRef.current = onSubmit;
+  onErrorRef.current = onError;
 
   useEffect(() => {
     let unmounted = false;
@@ -54,17 +78,35 @@ export function MercadoPagoBrick({ publicKey, amount, payerEmail, onSubmit, onEr
         return mp.bricks().create("payment", CONTAINER_ID, {
           initialization: { amount, payer: { email: payerEmail } },
           customization: {
-            paymentMethods: { creditCard: "all", debitCard: "all", bankTransfer: "all" },
+            // Card/debit and bankTransfer (Pix); ticket (boleto) is omitted.
+            paymentMethods: {
+              creditCard: "all",
+              debitCard: "all",
+              bankTransfer: "all",
+            },
+            visual: { hideFormTitle: true },
           },
           callbacks: {
             onReady: () => setLoading(false),
-            onError: (error: unknown) => onError?.(error instanceof Error ? error.message : "Erro no pagamento"),
-            onSubmit: ({ formData }: { formData: any }) => onSubmit(formData),
+            onError: (error: unknown) => {
+              console.error("[MercadoPagoBrick]", error);
+              setLoading(false);
+              onErrorRef.current?.(
+                error instanceof Error ? error.message : "Erro no pagamento"
+              );
+            },
+            onSubmit: ({ formData }: { formData: any }) =>
+              onSubmitRef.current(formData),
           },
         });
       })
-      .then((controller) => { if (controller) brickController = controller; })
-      .catch((error: Error) => onError?.(error.message));
+      .then(controller => {
+        if (controller) brickController = controller;
+      })
+      .catch((error: Error) => {
+        setLoading(false);
+        onErrorRef.current?.(error.message);
+      });
 
     return () => {
       unmounted = true;
@@ -75,7 +117,11 @@ export function MercadoPagoBrick({ publicKey, amount, payerEmail, onSubmit, onEr
 
   return (
     <div>
-      {loading && <p className="mb-3 text-center text-sm text-[#776e63]">Carregando pagamento seguro...</p>}
+      {loading && (
+        <p className="mb-3 text-center text-sm text-[#776e63]">
+          Carregando pagamento seguro...
+        </p>
+      )}
       <div id={CONTAINER_ID} ref={containerRef} />
     </div>
   );

@@ -1,4 +1,5 @@
 // server/companies.ts — usando Supabase SDK em vez de Drizzle
+import type { OpeningHours } from "@shared/store-rules";
 import { getDb, type Company } from "./db";
 
 const RESERVED_SLUGS = new Set(["admin-login", "super-admin", "cadastrar", "api", "404", "admin", "cozinha"]);
@@ -49,6 +50,17 @@ export async function listCompanies() {
 export async function setCompanyStatus(companyId: number, status: "active" | "suspended") {
   const db = getDb();
   await db.from("companies").update({ status } as Record<string, unknown>).eq("id", companyId);
+}
+
+export async function updateCompanyOrdering(companyId: number, input: {
+  openingHours: OpeningHours | null;
+  acceptsCashOnDelivery: boolean;
+  pickupEnabled: boolean;
+  pickupAddress?: string;
+}) {
+  const db = getDb();
+  const { error } = await db.from("companies").update(input as Record<string, unknown>).eq("id", companyId);
+  if (error) throw new Error(`[DB] Falha ao salvar as regras de pedido: ${error.message}`);
 }
 
 export async function updateCompanyBranding(companyId: number, input: {

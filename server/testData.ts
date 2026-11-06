@@ -30,6 +30,9 @@ export function buildTestCompany(slug: string): Company {
     primaryColor: "#c9a15a",
     templateId,
     pickupAddress: "Rua Exemplo, 123 — Centro",
+    openingHours: null,
+    acceptsCashOnDelivery: slug === "loja-completa",
+    pickupEnabled: slug === "loja-completa",
     status: "active",
     createdAt: new Date(),
   };

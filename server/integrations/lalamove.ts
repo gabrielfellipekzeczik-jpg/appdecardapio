@@ -44,7 +44,7 @@ export type CreateDeliveryInput = {
 
 export type DeliveryResult = { deliveryId: string; trackingUrl: string; status: string };
 
-/** Quotes then places a motorcycle ("MOTORCYCLE" service type — best fit for small marmita orders) delivery. */
+/** Quotes then places a motorcycle ("MOTORCYCLE" service type — best fit for small orders) delivery. */
 export async function createDelivery(input: CreateDeliveryInput): Promise<DeliveryResult> {
   const credentials = await getIntegrationCredentials<LalamoveCredentials>(input.companyId, "lalamove");
   if (!credentials) throw new Error("Lalamove is not configured for this company");

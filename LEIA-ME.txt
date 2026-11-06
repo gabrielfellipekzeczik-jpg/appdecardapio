@@ -1,6 +1,41 @@
-1) Copie estes arquivos para a pasta do projeto, mantendo as pastas (substitui os existentes).
-2) No PowerShell, na pasta do projeto:
-   git rm api/trpc.ts api/index.ts
-   git add .
-   git commit -m "Corrige API na Vercel: empacota o servidor em api/trpc.js"
-   git push
+CORREÇÕES E IMPLANTAÇÃO — APP DE MARMITAS
+
+1. ANTES DE PUBLICAR
+- No Supabase, selecione o schema marmitaria e aplique, em ordem, todas as migrações ainda pendentes, incluindo drizzle/0002_order_access_token.sql, drizzle/0003_courier_tracking.sql e drizzle/0004_finance_stock.sql. A 0004 adiciona índices financeiros, a data de aprovação e a função transacional de movimentos de estoque.
+- Mantenha a confirmação de e-mail habilitada no Supabase Auth e o template de e-mail enviando código OTP de 6 dígitos. O checkout cria/usa uma conta de comprador por e-mail confirmado e salva nome, telefone e até 10 endereços no perfil do Auth.
+- Para aceitar cartão/Pix ou gerar links de cobrança em pedidos manuais, o responsável precisa conectar Mercado Pago em Painel > Integrações. Sem essa conexão, o checkout não exibe campos de cartão sem processador configurado; pedidos manuais podem ser registrados em dinheiro na entrega.
+- A busca de endereços usa o serviço público OpenStreetMap Nominatim no servidor, com cache e fila de consultas. Se o serviço estiver fora do ar, o cliente ainda pode informar o endereço manualmente. Para tráfego comercial alto, configure um geocodificador próprio/provedor dedicado e respeite as políticas do serviço público.
+
+2. FINANCEIRO E ESTOQUE
+- Financeiro: relatórios dinâmicos filtráveis por período; receita de pagamentos aprovados, despesas lançadas, saldo operacional, pendências, forma de pagamento, produtos mais vendidos, despesas por categoria e exportação CSV.
+- “Saldo operacional” não é lucro contábil: o relatório não deduz custos de produto que não tenham sido lançados, impostos nem taxas não registradas.
+- Estoque: cadastre os insumos/unidades, saldo inicial, mínimo e custo; registre entradas, saídas e ajustes físicos com motivo. Saídas não podem deixar saldo negativo e cada movimento fica no histórico.
+- Pedidos não descontam ingredientes automaticamente nesta versão; para isso seria necessário cadastrar ficha técnica/receitas e associar ingredientes aos produtos vendidos.
+
+3. PEDIDO MANUAL, PAGAMENTO E ENTREGA
+- Pedidos manuais aceitam endereço com número e modalidade dinheiro na entrega ou link Mercado Pago. O operador pode copiar/compartilhar o link de cobrança e o acompanhamento do cliente.
+- Pagamentos em dinheiro entram na receita do BI quando o operador os marca como recebidos na fila de pedidos. Links Mercado Pago só viram receita após confirmação do provedor/webhook.
+- A taxa atual é fixa em R$ 5,90 (não é calculada por distância) e só entra se houver endereço, número e modalidade de entrega ativa. Sem algum desses elementos, a taxa é R$ 0,00.
+- Em Painel > Integrações, configure Motoboy próprio e salve nome e telefone. Quando o pedido estiver pronto, avance o status para “Pronto”. O painel copia o link privado para o entregador.
+- O entregador abre o link no celular via HTTPS, inicia o GPS e deixa a página aberta durante a entrega. O comprador acompanha a posição na página de rastreamento.
+- O código de confirmação são os 4 últimos dígitos do telefone do cliente. Ele aparece ao comprador na confirmação/rastreamento e não aparece na tela do motoboy; o motoboy só consegue concluir a entrega digitando o código.
+- O código é mostrado dentro do app, não enviado automaticamente por SMS/WhatsApp. O app abre mensagens de WhatsApp pré-preenchidas para os links de pedido manual, mas o operador ainda precisa confirmar o envio.
+
+4. DEPLOY NA VERCEL — WINDOWS POWERSHELL
+O handler correto é server/vercel-handler.ts; o build gera api/trpc.js. Não deixe handlers antigos api/trpc.ts ou api/index.ts no projeto.
+
+Na pasta do projeto, execute:
+
+```powershell
+Remove-Item .\api\trpc.ts, .\api\index.ts -Force -ErrorAction SilentlyContinue
+pnpm install --force --frozen-lockfile
+pnpm check
+pnpm test
+pnpm run build:vercel
+Get-ChildItem .\api -File | Select-Object Name
+vercel --prod
+```
+
+A pasta api deve conter trpc.js (não trpc.ts nem index.ts). A instalação forçada corrige dependências incompletas, inclusive Rollup. Se o Rollup continuar ausente, remova node_modules e rode pnpm install --frozen-lockfile novamente.
+
+O ZIP de entrega não contém .env.local; o arquivo existente do usuário deve ser preservado. Confirme as variáveis de ambiente do projeto na Vercel antes do deploy.

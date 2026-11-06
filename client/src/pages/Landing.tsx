@@ -25,7 +25,7 @@ const RED_BG   = "#fff0f1";
 // ── Animation helpers ─────────────────────────────────────────────────────────
 const fadeUp = {
   hidden:  { opacity: 0, y: 32 },
-  visible: (delay = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] } }),
+  visible: (delay = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as const } }),
 };
 
 const features = [
@@ -45,7 +45,7 @@ const steps = [
 ];
 
 const testimonials = [
-  { name: "Ana Souza",      role: "Marmitaria da Ana · SP", text: "Em uma semana já tinha 40 pedidos pelo app. Antes eu anotava tudo no papel.", stars: 5 },
+  { name: "Ana Souza",      role: "Loja da Ana · SP", text: "Em uma semana já tinha 40 pedidos pelo app. Antes eu anotava tudo no papel.", stars: 5 },
   { name: "Carlos Menezes", role: "Fit & Sabor · RJ",       text: "O Pix cai na hora. Nunca mais perdi pedido por falta de troco.",              stars: 5 },
   { name: "Patrícia Lima",  role: "Tempero Caseiro · MG",   text: "Meus clientes adoraram não precisar ligar para fazer pedido. Profissionalizou tudo.", stars: 5 },
 ];
@@ -183,7 +183,7 @@ export default function Landing() {
               <Utensils className="h-4 w-4" />
             </motion.div>
             <p className="font-display text-base font-bold leading-tight sm:text-xl">
-              Marmitaria<span className="hidden sm:inline"> Flow</span>
+              Cardápio<span className="hidden sm:inline"> Digital</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -268,7 +268,7 @@ export default function Landing() {
                 animate="visible"
                 custom={0.2}
               >
-                Cadastre sua marmitaria, monte o cardápio e comece a vender em minutos.
+                Cadastre seu negócio, monte o cardápio e comece a vender em minutos.
                 Pagamento Pix e cartão, entrega automática e painel de pedidos incluídos.
               </motion.p>
 
@@ -593,9 +593,9 @@ export default function Landing() {
             <div className="brand-mark !h-7 !w-7 flex-shrink-0">
               <Utensils className="h-3.5 w-3.5" />
             </div>
-            <span className="font-bold text-[#29251f]">Marmitaria Flow</span>
+            <span className="font-bold text-[#29251f]">Cardápio Digital</span>
           </div>
-          <p>© {new Date().getFullYear()} Marmitaria Flow. Todos os direitos reservados.</p>
+          <p>© {new Date().getFullYear()} Cardápio Digital. Todos os direitos reservados.</p>
         </div>
       </footer>
     </div>

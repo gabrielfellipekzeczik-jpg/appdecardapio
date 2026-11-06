@@ -1,3 +1,4 @@
+import CustomerOrders from "./pages/CustomerOrders";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -11,7 +12,9 @@ import CompanyIntegrations from "./pages/CompanyIntegrations";
 import CompanySignUp from "./pages/CompanySignUp";
 import Kitchen from "./pages/Kitchen";
 import Landing from "./pages/Landing";
-import SuperAdmin from "./pages/SuperAdmin";
+import SuperAdmin from "@/pages/SuperAdmin";
+import CourierTracking from "@/pages/CourierTracking";
+import CustomerOrderTracking from "@/pages/CustomerOrderTracking";
 
 function Router() {
   return <Switch>
@@ -22,6 +25,9 @@ function Router() {
     <Route path="/:slug/admin/integracoes" component={CompanyIntegrations} />
     <Route path="/:slug/admin" component={Admin} />
     <Route path="/:slug/cozinha" component={Kitchen} />
+    <Route path="/:slug/pedidos" component={CustomerOrders} />
+    <Route path="/entregador/:token" component={CourierTracking} />
+    <Route path="/rastrear/:slug/:token" component={CustomerOrderTracking} />
     <Route path="/404" component={NotFound} />
     <Route path="/:slug" component={Home} />
     <Route component={NotFound} />

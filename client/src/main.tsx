@@ -43,7 +43,8 @@ const trpcClient = trpc.createClient({
       async headers() {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
-        return token ? { Authorization: `Bearer ${token}` } : {};
+        const orderToken = localStorage.getItem("marmitaria-client-ref");
+        return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(orderToken ? { "x-customer-access-token": orderToken } : {}) };
       },
     }),
   ],

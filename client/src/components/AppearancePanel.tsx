@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { extractDominantColor } from "@/lib/color";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
+import { OrderingSettingsCard } from "@/components/OrderingSettingsCard";
 
 const TEMPLATE_OPTIONS = [
   { id: "premium" as const, name: "Bistrô", description: "Escuro e elegante, com foto de fundo, categorias na lateral e carrinho sempre visível. Tem alternância claro/escuro." },
@@ -87,6 +88,7 @@ export function AppearancePanel() {
 
   return (
     <div className="space-y-5">
+      <OrderingSettingsCard />
       <Card className="border-0 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div><CardTitle className="font-display text-xl">Identidade visual</CardTitle><p className="mt-1 text-sm text-[#776e63]">Nome, logo e cor que aparecem no seu cardápio.</p></div>
@@ -111,7 +113,7 @@ export function AppearancePanel() {
               <Button variant="outline" size="sm" disabled={uploadingHero} onClick={() => heroInputRef.current?.click()} className="rounded-lg">
                 {uploadingHero ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1.5 h-3.5 w-3.5" />} {uploadingHero ? "Enviando..." : "Enviar foto de fundo"}
               </Button>
-              <p className="mt-1 text-xs text-[#a79b8d]">Foto do salão/prato pra capa do modelo Bistrô. Uma foto horizontal e escura funciona melhor.</p>
+              <p className="mt-1 text-xs text-[#a79b8d]">Foto da loja ou de um produto pra capa do modelo Bistrô. Uma foto horizontal e escura funciona melhor.</p>
             </div>
           </div>
 

@@ -17,6 +17,12 @@ export const ENV = {
   mpRedirectUri: process.env.MP_REDIRECT_URI ?? "",
   get platformFeePercent() { return Number(process.env.PLATFORM_FEE_PERCENT ?? "5"); },
 
+  // Link público do app (usado nos avisos ao cliente). Ex.: https://seu-app.vercel.app
+  get publicAppUrl() { return (process.env.PUBLIC_APP_URL ?? process.env.VITE_PUBLIC_APP_URL ?? "").replace(/\/+$/, ""); },
+  // E-mails transacionais (opcional) via Resend — https://resend.com
+  get resendApiKey() { return process.env.RESEND_API_KEY ?? ""; },
+  get emailFrom() { return process.env.EMAIL_FROM ?? ""; },
+
   // Delivery provider credentials (Uber Direct, Lalamove) are per-company —
   // see `server/db.ts` `getIntegrationCredentials`, not env vars.
 };

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
 import { ArrowRight, Minus, Plus, ShieldCheck, ShoppingBag, Star, UtensilsCrossed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StorefrontCartCheckout } from "@/components/StorefrontCartCheckout";
@@ -64,13 +63,12 @@ export function CoverTemplate(s: Storefront) {
       <div className="xl:hidden">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-[#161009]/90 backdrop-blur-xl">
           <div className="mx-auto flex h-[72px] max-w-3xl items-center justify-between px-5">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               {company.logoUrl ? <img src={company.logoUrl} alt={company.name} className="h-9 w-9 rounded-full object-cover" /> : <div className="flex h-9 w-9 items-center justify-center rounded-full text-[#211a13]" style={{ backgroundColor: brand }}><UtensilsCrossed className="h-4 w-4" /></div>}
-              <p className="font-display text-lg font-bold text-[#f6ecd9]">{company.name}</p>
+              <p className="truncate font-display text-lg font-bold text-[#f6ecd9]">{company.name}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <Link href={`/${s.slug}/admin`}><Button variant="ghost" size="sm" className="hidden text-[#b3a793] hover:bg-white/5 hover:text-[#f6ecd9] sm:flex">Área da cozinha</Button></Link>
-              <Button size="sm" onClick={() => s.setCartOpen(true)} className="rounded-full px-4 text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}><ShoppingBag className="mr-2 h-4 w-4" /> {s.totalItems > 0 ? `${s.totalItems} itens` : "Pedido"}</Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <a href={`/${s.slug}/pedidos`} className="whitespace-nowrap px-1 text-xs font-medium opacity-80 hover:underline sm:text-sm">Meus pedidos</a><Button size="sm" onClick={() => s.setCartOpen(true)} className="rounded-full px-4 text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}><ShoppingBag className="mr-2 h-4 w-4" /> {s.totalItems > 0 ? `${s.totalItems} ${s.totalItems === 1 ? "item" : "itens"}` : "Pedido"}</Button>
             </div>
           </div>
         </header>
@@ -97,7 +95,7 @@ export function CoverTemplate(s: Storefront) {
                       <p className="mt-1.5 text-sm leading-6 text-[#b3a793]">{item.description}</p>
                       <div className="mt-2 flex items-center gap-2">
                         <span className="text-[10px] uppercase tracking-wide text-[#8a7f6f]">{item.tag}</span>
-                        <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="ml-auto flex h-7 w-7 items-center justify-center rounded-full border transition hover:bg-white/5" style={{ borderColor: `${brand}66`, color: brand }}><Plus className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="ml-auto flex h-11 w-11 items-center justify-center rounded-full border transition hover:bg-white/5" style={{ borderColor: `${brand}66`, color: brand }}><Plus className="h-5 w-5" /></button>
                       </div>
                     </div>
                   </div>
@@ -115,7 +113,6 @@ export function CoverTemplate(s: Storefront) {
           className="absolute inset-0 -z-10"
           style={{ backgroundImage: `linear-gradient(rgba(10,7,4,.72), rgba(10,7,4,.85)), url(${heroPhoto})`, backgroundSize: "cover", backgroundPosition: "center" }}
         />
-        <Link href={`/${s.slug}/admin`}><span className="absolute right-6 top-5 z-10 text-xs font-medium text-white/60 hover:text-white/90">Área da cozinha</span></Link>
         <div className="mx-auto grid h-screen max-w-[1360px] grid-cols-3 items-center gap-6 px-8 py-8">
           <CoverPanel company={company} brand={brand} heroPhoto={heroPhoto} />
           <MenuPanel s={s} brand={brand} />
@@ -230,7 +227,7 @@ function CartPanel({ s, brand }: { s: Storefront; brand: string }) {
             <div className="flex justify-between text-[#b3a793]"><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>
             <div className="flex justify-between text-base font-bold text-[#f6ecd9]"><span>Total</span><span style={{ color: brand }}>R$ {s.total.toFixed(2).replace(".", ",")}</span></div>
           </div>
-          <Button onClick={() => s.setCheckoutOpen(true)} className="mt-4 h-11 w-full shrink-0 rounded-xl font-semibold text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
+          <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full shrink-0 rounded-xl font-semibold text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
           <p className="mt-3 flex shrink-0 items-center justify-center gap-1.5 text-[11px] text-[#8a7f6f]"><ShieldCheck className="h-3.5 w-3.5" /> Ambiente seguro</p>
           <div className="mt-3 flex shrink-0 items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a7f6f]">
             <span className="rounded border border-white/10 px-1.5 py-0.5">Pix</span>

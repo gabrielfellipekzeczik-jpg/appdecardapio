@@ -35,6 +35,9 @@ export function buildDemoCompany(slug: string): Company {
     primaryColor: "#c9a15a",
     templateId,
     pickupAddress: "Rua Exemplo, 123 — Centro",
+    openingHours: null,
+    acceptsCashOnDelivery: false,
+    pickupEnabled: false,
     status: "active",
     createdAt: new Date(),
   };

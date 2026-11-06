@@ -1,4 +1,4 @@
-# Marmitaria Flow — execução real
+# Cardápio Digital — execução real
 
 Este projeto foi configurado para operar com dados reais persistidos. Ele **não inicia sem as credenciais obrigatórias** e não usa cardápio, empresa ou pedidos fictícios no ambiente de desenvolvimento/produção.
 
@@ -100,13 +100,9 @@ Se a migração antiga já tiver criado tabelas em `public`, faça backup e migr
 
 ## 6. Configurar Storage
 
-Crie no Supabase Storage o bucket:
+No Supabase > SQL Editor, rode o conteúdo de `supabase-storage.sql`. Ele cria o bucket público `logos` e libera upload de imagens (logo, foto de fundo e fotos do cardápio) somente na pasta da própria empresa.
 
-```text
-logos
-```
-
-Configure policies de upload para usuários autenticados e leitura das imagens usadas publicamente no cardápio. Sem esse bucket, o cadastro de logo e imagens falhará.
+Sem isso o envio de fotos falha com `new row violates row-level security policy`.
 
 ## 7. Criar a primeira conta e empresa
 
@@ -126,7 +122,7 @@ http://localhost:3000/cadastrar
 2. Digite o código de 6 dígitos que chegou no e-mail.
 3. A empresa é criada e você cai direto no painel (`/seu-endereco/admin`).
 4. Nos próximos acessos, entre em `/admin-login`.
-5. Cadastre categorias e itens do cardápio pelo painel/banco.
+5. Cadastre categorias e pratos em **Admin → Cardápio → Adicionar marmita** (com foto; as fotos vão para o bucket `logos`).
 6. Use o email definido em `OWNER_EMAIL` para acessar o Super Admin.
 
 Sem dados reais em `companies` e `menu_items`, a loja pública não terá conteúdo para mostrar. O sistema não insere conteúdo fictício automaticamente.
@@ -158,7 +154,21 @@ As credenciais de entrega são cadastradas por empresa e armazenadas criptografa
 
 A 99Entrega depende de contrato e API de parceiro. A presença de uma opção visual não significa que a integração esteja disponível.
 
-Para WhatsApp/SMS, configure um provedor real, token, remetente, templates aprovados, consentimento do cliente, retentativas e logs.
+Avisos de pedido (pagamento confirmado, em preparo, aguardando entrega, saiu para entrega, entregue) são enviados por **e-mail** (Resend) e **WhatsApp** (serviço `bot/`). Veja `NOTIFICACOES.md` para ativar. O cliente também pode consultar tudo em `/SUA-LOJA/pedidos`, entrando só com o e-mail.
+
+## 9.1 Bot de WhatsApp (atendimento automático com Gemini)
+
+O bot responde, no WhatsApp da loja, a clientes que **escrevem primeiro** perguntando preço, cardápio, como pedir ou endereço. O Gemini decide se a mensagem se encaixa; qualquer outro assunto fica para você. O bot **não** roda na Vercel: precisa de um processo ligado o tempo todo e de um disco para guardar a sessão. Ele fica na pasta `bot/` e conversa com o app só pelo banco (tabela `whatsapp_bots`).
+
+> Aviso: usa conexão não oficial (Baileys, como o WhatsApp Web). O risco de bloqueio do número é reduzido pelas travas do bot, mas não eliminado. Use um número dedicado ao negócio.
+
+1. Aplique a migração nova do banco (cria `whatsapp_bots`): `pnpm run db:push`.
+2. Gere uma chave do Gemini em https://aistudio.google.com/apikey.
+3. Suba a pasta `bot/` em um host com processo contínuo e **volume persistente** (Railway, Fly.io, Render ou VPS). Há um `Dockerfile` pronto; monte o volume em `/data`.
+4. Variáveis do serviço (veja `bot/.env.example`): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (os mesmos do app), `GEMINI_API_KEY`, `PUBLIC_APP_URL` (domínio do app na Vercel, sem barra no final) e `BOT_DATA_DIR=/data`.
+5. No app, abra **Integrações → WhatsApp → Conectar WhatsApp**, leia o QR em *WhatsApp → Aparelhos conectados → Conectar um aparelho*.
+
+Regras embutidas: só responde a quem escreveu; ignora grupos, áudio e mensagens longas; só cita preços e o link do cardápio da própria loja (qualquer outra resposta é descartada); espera e "digita" como uma pessoa; limita respostas por contato e por hora; se você responder pelo celular, se cala naquela conversa por 6 horas; "SAIR" interrompe de vez para aquele contato. Sem o serviço no ar, a tela mostra o aviso e nada é enviado.
 
 ## 10. Validar antes de publicar
 

@@ -68,8 +68,7 @@ async function handleMercadoPagoCallback(req: IncomingMessage, res: ServerRespon
 
 // Handler de webhook do Mercado Pago (notificações de pagamento)
 async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerResponse) {
-  res.writeHead(200).end("ok"); // ack imediato
-
+  // Na Vercel a função congela depois da resposta: só confirmamos (200) ao terminar o processamento.
   try {
     const url = new URL(req.url ?? "", `https://${req.headers.host}`);
     const companyId = Number(url.searchParams.get("companyId"));
@@ -88,8 +87,8 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     if (topic && topic !== "payment") return;
     if (!paymentId || !companyId) return;
 
-    const { getIntegrationCredentials, setOrderPayment, findOrderByExternalPaymentId } = await import("./db");
-    const credentials = await getIntegrationCredentials<{ accessToken: string }>(companyId, "mercadopago");
+    const { getIntegrationCredentials, setOrderPayment, findOrderByExternalPaymentId, getOrderById } = await import("./db");
+    const credentials = await getIntegrationCredentials<{ accessToken: string; userId?: string }>(companyId, "mercadopago");
     if (!credentials?.accessToken) return;
 
     const paymentResp = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
@@ -97,7 +96,7 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     });
     if (!paymentResp.ok) return;
 
-    const payment = (await paymentResp.json()) as { id: number; status: string; external_reference?: string };
+    const payment = (await paymentResp.json()) as { id: number; status: string; external_reference?: string; preference_id?: string | null; collector_id?: number | string; transaction_amount?: number };
     const MP_STATUS_MAP: Record<string, "pending" | "approved" | "rejected" | "refunded"> = {
       pending: "pending", in_process: "pending", authorized: "pending",
       approved: "approved", rejected: "rejected", cancelled: "rejected",
@@ -105,14 +104,27 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     };
     const mappedStatus = MP_STATUS_MAP[payment.status] ?? "pending";
     const orderId = payment.external_reference ? Number(payment.external_reference) : undefined;
-    if (!orderId) return;
+    if (!orderId || !Number.isSafeInteger(orderId)) return;
+    if (credentials.userId && String(payment.collector_id) !== String(credentials.userId)) return;
 
-    const existing = await findOrderByExternalPaymentId(companyId, String(paymentId));
-    if (!existing || (existing as { paymentStatus: string }).paymentStatus !== mappedStatus) {
+    const paymentIdOrder = await findOrderByExternalPaymentId(companyId, String(paymentId));
+    let existingOrder = paymentIdOrder;
+    if (!existingOrder && payment.preference_id) {
+      const preferenceOrder = await getOrderById(companyId, orderId);
+      if (preferenceOrder?.order.externalPaymentId === `pref:${payment.preference_id}`) existingOrder = preferenceOrder.order;
+    }
+    if (!existingOrder || existingOrder.id !== orderId || existingOrder.companyId !== companyId || Number(payment.transaction_amount).toFixed(2) !== Number(existingOrder.total).toFixed(2)) return;
+    if (existingOrder.paymentStatus !== mappedStatus) {
       await setOrderPayment(orderId, { paymentStatus: mappedStatus, externalPaymentId: String(paymentId) });
+      if (mappedStatus === "approved") {
+        const { notifyOrderEvent } = await import("./notifications");
+        await notifyOrderEvent(orderId, "paid");
+      }
     }
   } catch (error) {
     console.error("[MercadoPago] Webhook processing failed:", error);
+  } finally {
+    if (!res.headersSent) res.writeHead(200).end("ok");
   }
 }
 
@@ -141,11 +153,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v ?? ""])
     ),
     body: req.method !== "GET" && req.method !== "HEAD"
-      ? await new Promise<Buffer>((resolve) => {
+      ? (await new Promise<Buffer>((resolve) => {
           const chunks: Buffer[] = [];
           req.on("data", (chunk: Buffer) => chunks.push(chunk));
           req.on("end", () => resolve(Buffer.concat(chunks)));
-        })
+        })) as unknown as BodyInit
       : undefined,
   });
 

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
 import {
   ArrowRight, ClipboardList, Home as HomeIcon, Menu as MenuIcon, Minus, Moon, Plus,
   Search, ShieldCheck, ShoppingBag, Star, Sun, UtensilsCrossed,
@@ -51,11 +50,11 @@ export function PremiumTemplate(s: Storefront) {
         style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,.68), rgba(0,0,0,.55), #161009), url(${company.heroImageUrl || DEFAULT_HERO_IMAGE})`, backgroundSize: "cover", backgroundPosition: "center" }}
         onTransitionEnd={(event) => { if (event.propertyName === "opacity" && event.target === event.currentTarget) setDismissed(true); }}
       >
-        <div className="flex max-w-xl flex-col items-center">
+        <div className="flex w-full max-w-xl flex-col items-center">
           {company.logoUrl
             ? <img src={company.logoUrl} alt={company.name} className="h-20 w-20 rounded-full border-2 object-cover shadow-2xl" style={{ borderColor: `${brand}88` }} />
             : <div className="flex h-20 w-20 items-center justify-center rounded-full border-2" style={{ borderColor: `${brand}88` }}><UtensilsCrossed className="h-8 w-8" /></div>}
-          <h1 className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-5xl">{company.name}</h1>
+          <h1 className="mt-6 max-w-full break-words font-display text-3xl font-bold tracking-tight sm:text-5xl">{company.name}</h1>
           <div className="mt-3 h-px w-16" style={{ backgroundColor: brand }} />
           <p className="mt-3 text-xs font-semibold uppercase tracking-[0.35em]" style={{ color: brand }}>{company.tagline || "culinária autoral"}</p>
           <p className="mx-auto mt-6 max-w-md text-[15px] leading-7 text-white/75">Ingredientes selecionados, preparo cuidadoso e uma experiência que vale a espera.</p>
@@ -76,16 +75,15 @@ export function PremiumTemplate(s: Storefront) {
     <header className={`sticky top-0 z-30 border-b ${BORDER} bg-[#faf7f2]/90 backdrop-blur-xl dark:bg-[#161009]/90`}>
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-4 lg:px-8">
         <button onClick={() => setMobileCategoriesOpen(true)} className={`rounded-full p-2 ${TEXT_MUTED} hover:bg-black/5 dark:hover:bg-white/5 lg:hidden`} aria-label="Abrir categorias"><MenuIcon className="h-5 w-5" /></button>
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 px-1">
           {company.logoUrl ? <img src={company.logoUrl} alt={company.name} className="h-8 w-8 rounded-full object-cover" /> : <div className="flex h-8 w-8 items-center justify-center rounded-full text-white" style={{ backgroundColor: brand }}><UtensilsCrossed className="h-4 w-4" /></div>}
-          <p className="font-display text-lg font-bold tracking-tight">{company.name}</p>
+          <p className="truncate font-display text-lg font-bold tracking-tight">{company.name}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button onClick={toggleTheme} className={`rounded-full p-2.5 ${TEXT_MUTED} ring-1 ring-inset ${BORDER} hover:bg-black/5 dark:hover:bg-white/5`} aria-label="Alternar tema claro/escuro">
             {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
-          <Link href={`/${s.slug}/admin`}><Button variant="ghost" size="sm" className={`hidden ${TEXT_MUTED} sm:flex`}>Área da cozinha</Button></Link>
-          <Button size="sm" onClick={() => s.setCartOpen(true)} className="rounded-full px-4 text-white lg:hidden" style={{ backgroundColor: brand }}>
+          <a href={`/${s.slug}/pedidos`} className="hidden whitespace-nowrap px-1 text-xs font-medium opacity-80 hover:underline sm:inline sm:text-sm">Meus pedidos</a><Button size="sm" onClick={() => s.setCartOpen(true)} className="rounded-full px-4 text-white lg:hidden" style={{ backgroundColor: brand }}>
             <ShoppingBag className="mr-2 h-4 w-4" /> {s.totalItems > 0 ? `R$ ${s.total.toFixed(2).replace(".", ",")}` : "Carrinho"}
           </Button>
         </div>
@@ -100,7 +98,7 @@ export function PremiumTemplate(s: Storefront) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar no cardápio..."
-          className={`w-full rounded-xl border ${BORDER} ${SURFACE} py-3 pl-11 pr-4 text-sm outline-none focus:ring-2`}
+          className={`w-full rounded-xl border ${BORDER} ${SURFACE} py-3 pl-11 pr-4 text-base outline-none focus:ring-2`}
           style={{ ["--tw-ring-color" as string]: `${brand}55` }}
         />
       </div>
@@ -140,7 +138,7 @@ export function PremiumTemplate(s: Storefront) {
                   <p className={`mt-1 line-clamp-2 text-sm leading-6 ${TEXT_MUTED}`}>{item.description}</p>
                   <p className="mt-1.5 font-display text-base font-bold" style={{ color: brand }}>R$ {item.price.toFixed(2).replace(".", ",")}</p>
                 </div>
-                <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow" style={{ backgroundColor: brand }}><Plus className="h-4 w-4" /></button>
+                <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow" style={{ backgroundColor: brand }}><Plus className="h-4 w-4" /></button>
               </div>
             ))}
           </div>
@@ -179,7 +177,7 @@ export function PremiumTemplate(s: Storefront) {
                   <div className={`flex justify-between ${TEXT_MUTED}`}><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>
                   <div className="flex justify-between text-base font-bold"><span>Total</span><span style={{ color: brand }}>R$ {s.total.toFixed(2).replace(".", ",")}</span></div>
                 </div>
-                <Button onClick={() => s.setCheckoutOpen(true)} className="mt-4 h-11 w-full rounded-xl font-semibold text-[#211a13]" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full rounded-xl font-semibold text-[#211a13]" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
                 <p className={`mt-3 flex items-center justify-center gap-1.5 text-[11px] ${TEXT_MUTED}`}><ShieldCheck className="h-3.5 w-3.5" /> Ambiente seguro</p>
               </>
             )}
