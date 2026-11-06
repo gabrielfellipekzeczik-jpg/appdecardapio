@@ -54,13 +54,14 @@ Mantenha confirmação de e-mail habilitada no Supabase Auth e template OTP de 6
 
 `.env.local` não foi alterado e foi excluído do ZIP de entrega.
 
-# Compra sem código e regras da loja — 06/11/2026
+# Regras da loja e produção — 06/11/2026
 
-Antes de publicar, aplique `drizzle/0008_store_ordering_settings.sql` no schema `marmitaria`. Sem ela, a loja continua vendendo, mas o painel não salva horário, dinheiro e retirada.
+Antes de publicar, aplique no schema `marmitaria`, em ordem, `drizzle/0008_store_ordering_settings.sql` e `drizzle/0009_recipe_ingredients.sql`. Sem a 0008, a loja continua vendendo, mas o painel não salva horário, dinheiro e retirada. Sem a 0009, a aba Produção não abre as fichas técnicas.
 
-- O comprador paga sem confirmar e-mail; o código fica só em "Meus pedidos". Os dados ficam salvos no aparelho.
+- O comprador confirma o e-mail antes de pagar: digita o endereço em dois campos iguais, recebe o código e valida. Assim nome, telefone e endereços ficam salvos na conta para a próxima compra.
+- Em Painel > Produção, cada prato tem ficha técnica com os insumos por porção. Ao informar as porções, o app soma os insumos, aplica a perda, desconta o estoque e monta a lista de compras.
 - Limites: 8 pedidos a cada 10 minutos por IP e 5 pedidos sem pagamento por telefone em 1 hora.
 - Em Painel > Aparência a loja define horário de funcionamento, pagamento na entrega e retirada. Dinheiro e retirada começam desligados. Fora do horário o servidor recusa pedidos.
-- Pedidos online só aparecem na cozinha depois de pagos. Pedidos pagos na entrega entram direto, sem validação do comprador; acompanhe abusos antes de ativar.
+- Pedidos online só aparecem na cozinha depois de pagos. Pedidos pagos na entrega entram direto, depois da confirmação do e-mail.
 - O Pix expira em 30 minutos, e o cliente pode trocar a forma de pagamento. O servidor confere o Mercado Pago antes de cancelar.
 - Busca de endereço por CEP usa ViaCEP.

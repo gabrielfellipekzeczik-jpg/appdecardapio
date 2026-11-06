@@ -352,6 +352,17 @@ function testDeleteMenuItem(id) {
   menu.splice(index, 1);
   return true;
 }
+function testListRecipeIngredients() {
+  return recipeLines;
+}
+function testSaveRecipe(input) {
+  if (!menu.some((item) => item.id === input.menuItemId)) return false;
+  recipeLines = [
+    ...recipeLines.filter((line) => line.menuItemId !== input.menuItemId),
+    ...input.lines.map((line) => ({ ...line, menuItemId: input.menuItemId }))
+  ];
+  return true;
+}
 function testListInventory() {
   return inventoryItems.filter((item) => item.active);
 }
@@ -661,7 +672,7 @@ function testPatchWhatsappBot(patch) {
   whatsappBot = { ...whatsappBot ?? blankBot(), ...patch, updatedAt: now() };
   return whatsappBot;
 }
-var DEMO_COMPANY_ID, now, categories, menu, customers, orders, inventoryItems, inventoryMovements, expenses, nextCustomerId, nextOrderId, nextOrderItemId, nextInventoryItemId, nextMovementId, nextExpenseId, nextCategoryId, nextMenuItemId, whatsappBot, blankBot;
+var DEMO_COMPANY_ID, now, categories, menu, customers, orders, inventoryItems, inventoryMovements, expenses, nextCustomerId, nextOrderId, nextOrderItemId, nextInventoryItemId, nextMovementId, nextExpenseId, nextCategoryId, nextMenuItemId, recipeLines, whatsappBot, blankBot;
 var init_testStore = __esm({
   "server/testStore.ts"() {
     "use strict";
@@ -779,6 +790,7 @@ var init_testStore = __esm({
     nextExpenseId = 1;
     nextCategoryId = 100;
     nextMenuItemId = 100;
+    recipeLines = [];
     blankBot = () => ({
       companyId: DEMO_COMPANY_ID,
       desired: "disconnected",
@@ -879,10 +891,12 @@ __export(db_exports, {
   listOrdersForEmail: () => listOrdersForEmail,
   listRecentExpenses: () => listRecentExpenses,
   listRecentOrders: () => listRecentOrders,
+  listRecipeIngredients: () => listRecipeIngredients,
   recordInventoryMovement: () => recordInventoryMovement,
   requestWhatsappConnect: () => requestWhatsappConnect,
   requestWhatsappDisconnect: () => requestWhatsappDisconnect,
   saveIntegrationCredentials: () => saveIntegrationCredentials,
+  saveRecipe: () => saveRecipe,
   setOrderDelivery: () => setOrderDelivery,
   setOrderPayment: () => setOrderPayment,
   updateDriverLocation: () => updateDriverLocation,
@@ -1510,6 +1524,49 @@ async function recordInventoryMovement(companyId, input) {
   }
   return data;
 }
+async function listRecipeIngredients(companyId) {
+  if (isTestMode()) return testListRecipeIngredients();
+  const db = getDb();
+  const { data, error } = await db.from("recipe_ingredients").select("menuItemId,inventoryItemId,quantity,unit,lossPercent").eq("companyId", companyId);
+  if (error)
+    throw new Error(`[DB] Falha ao listar fichas t\xE9cnicas: ${error.message}`);
+  return data ?? [];
+}
+async function saveRecipe(companyId, input) {
+  if (isTestMode()) return testSaveRecipe(input);
+  const db = getDb();
+  const { data: dish } = await db.from("menu_items").select("id").eq("id", input.menuItemId).eq("companyId", companyId).maybeSingle();
+  if (!dish) return false;
+  if (input.lines.length) {
+    const { error } = await db.from("recipe_ingredients").upsert(
+      input.lines.map((line) => ({
+        companyId,
+        menuItemId: input.menuItemId,
+        inventoryItemId: line.inventoryItemId,
+        quantity: line.quantity.toFixed(3),
+        unit: line.unit,
+        lossPercent: line.lossPercent?.toFixed(2) ?? null,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      })),
+      { onConflict: "menuItemId,inventoryItemId" }
+    );
+    if (error)
+      throw new Error(`[DB] Falha ao salvar ficha t\xE9cnica: ${error.message}`);
+  }
+  let removal = db.from("recipe_ingredients").delete().eq("companyId", companyId).eq("menuItemId", input.menuItemId);
+  if (input.lines.length)
+    removal = removal.not(
+      "inventoryItemId",
+      "in",
+      `(${input.lines.map((line) => line.inventoryItemId).join(",")})`
+    );
+  const { error: removalError } = await removal;
+  if (removalError)
+    throw new Error(
+      `[DB] Falha ao atualizar ficha t\xE9cnica: ${removalError.message}`
+    );
+  return true;
+}
 async function listInventoryMovements(companyId, limit = 100) {
   if (isTestMode()) return testListInventoryMovements(limit);
   const db = getDb();
@@ -2017,6 +2074,20 @@ function isReadyForKitchen(order) {
 
 // server/routers.ts
 init_store_rules();
+
+// shared/production-plan.ts
+var UNIT_FAMILIES = {
+  mass: { g: 1, kg: 1e3 },
+  volume: { ml: 1, L: 1e3 }
+};
+var familyOf = (unit) => Object.values(UNIT_FAMILIES).find((family) => unit in family);
+function compatibleUnits(stockUnit) {
+  const family = familyOf(stockUnit);
+  return family ? Object.keys(family) : [stockUnit];
+}
+var MAX_LOSS_PERCENT = 90;
+
+// server/routers.ts
 import { createHash as createHash3, randomUUID } from "node:crypto";
 import { z as z2 } from "zod";
 
@@ -3078,6 +3149,16 @@ var appRouter = router({
         ).min(1).max(30)
       })
     ).mutation(async ({ ctx, input }) => {
+      if (!ctx.user || ctx.user.email?.toLowerCase() !== input.email.trim().toLowerCase())
+        throw new TRPCError2({
+          code: "UNAUTHORIZED",
+          message: "Confirme o e-mail e entre na conta de comprador antes de criar o pedido."
+        });
+      if (!await isSupabaseEmailConfirmed(ctx.req, input.email))
+        throw new TRPCError2({
+          code: "UNAUTHORIZED",
+          message: "Confirme seu e-mail antes de criar o pedido."
+        });
       if (!isTestMode() && !orderRateLimiter(clientIp(ctx.req)))
         throw new TRPCError2({
           code: "TOO_MANY_REQUESTS",
@@ -3488,6 +3569,49 @@ var appRouter = router({
       return { success: true };
     })
   }),
+  recipes: router({
+    list: companyAdminProcedure.query(
+      ({ ctx }) => listRecipeIngredients(ctx.companyId)
+    ),
+    save: companyAdminProcedure.input(
+      z2.object({
+        menuItemId: z2.number().int().positive(),
+        lines: z2.array(
+          z2.object({
+            inventoryItemId: z2.number().int().positive(),
+            quantity: z2.number().positive().max(1e6),
+            unit: z2.string().min(1).max(20),
+            lossPercent: z2.number().min(0).max(MAX_LOSS_PERCENT).nullable()
+          })
+        ).max(60)
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const stock = await listInventory(ctx.companyId);
+      const units = new Map(
+        stock.map((item) => [Number(item.id), String(item.unit)])
+      );
+      for (const line of input.lines) {
+        const stockUnit = units.get(line.inventoryItemId);
+        if (!stockUnit)
+          throw new TRPCError2({
+            code: "BAD_REQUEST",
+            message: "Um dos insumos n\xE3o pertence ao seu estoque."
+          });
+        if (!compatibleUnits(stockUnit).includes(line.unit))
+          throw new TRPCError2({
+            code: "BAD_REQUEST",
+            message: `A unidade ${line.unit} n\xE3o combina com ${stockUnit}.`
+          });
+      }
+      const saved = await saveRecipe(ctx.companyId, input);
+      if (!saved)
+        throw new TRPCError2({
+          code: "NOT_FOUND",
+          message: "Prato n\xE3o encontrado."
+        });
+      return { saved: true };
+    })
+  }),
   inventory: router({
     list: companyAdminProcedure.query(
       ({ ctx }) => listInventory(ctx.companyId)
@@ -3685,6 +3809,16 @@ var appRouter = router({
       })
     ).mutation(async ({ ctx, input }) => {
       const company = await requireCompanyBySlug(input.companySlug);
+      if (!ctx.user || ctx.user.email?.toLowerCase() !== input.payerEmail.trim().toLowerCase())
+        throw new TRPCError2({
+          code: "UNAUTHORIZED",
+          message: "Confirme seu e-mail antes de pagar."
+        });
+      if (!await isSupabaseEmailConfirmed(ctx.req, input.payerEmail))
+        throw new TRPCError2({
+          code: "UNAUTHORIZED",
+          message: "Confirme seu e-mail antes de pagar."
+        });
       if (isBoletoPaymentMethod(input.paymentMethodId)) {
         throw new TRPCError2({
           code: "BAD_REQUEST",

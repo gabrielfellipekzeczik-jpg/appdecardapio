@@ -13,6 +13,7 @@ import {
 } from "@shared/payment-messages";
 import { getStoreStatus, PICKUP_ADDRESS } from "@shared/store-rules";
 import { trpc } from "@/lib/trpc";
+import { supabase } from "@/lib/supabase";
 
 /** Used behind the cover/hero when a company hasn't uploaded their own photo yet — a moody restaurant interior reads much more "this is a real place" than a flat color gradient. */
 export const DEFAULT_HERO_IMAGE =
@@ -507,8 +508,12 @@ export function useStorefront(slug: string) {
       );
       return null;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email.trim())) {
-      toast.error("Informe um e-mail válido.");
+    const { data: authData } = await supabase.auth.getUser();
+    if (
+      !authData.user?.email_confirmed_at ||
+      authData.user.email?.toLowerCase() !== customer.email.trim().toLowerCase()
+    ) {
+      toast.error("Confirme seu e-mail antes de pagar.");
       return null;
     }
     if (

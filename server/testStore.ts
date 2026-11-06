@@ -310,6 +310,28 @@ export function testDeleteMenuItem(id: number) {
   menu.splice(index, 1);
   return true;
 }
+type DemoRecipeLine = {
+  menuItemId: number;
+  inventoryItemId: number;
+  quantity: number;
+  unit: string;
+  lossPercent: number | null;
+};
+let recipeLines: DemoRecipeLine[] = [];
+export function testListRecipeIngredients() {
+  return recipeLines;
+}
+export function testSaveRecipe(input: {
+  menuItemId: number;
+  lines: Omit<DemoRecipeLine, "menuItemId">[];
+}) {
+  if (!menu.some(item => item.id === input.menuItemId)) return false;
+  recipeLines = [
+    ...recipeLines.filter(line => line.menuItemId !== input.menuItemId),
+    ...input.lines.map(line => ({ ...line, menuItemId: input.menuItemId })),
+  ];
+  return true;
+}
 export function testListInventory() {
   return inventoryItems.filter(item => item.active);
 }

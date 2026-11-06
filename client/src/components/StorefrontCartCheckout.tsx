@@ -8,6 +8,7 @@ import {
   Copy,
   CreditCard,
   LockKeyhole,
+  MailCheck,
   MapPin,
   MapPinned,
   Minus,
@@ -34,7 +35,7 @@ import { trpc } from "@/lib/trpc";
 import { OrderTrackingView } from "@/components/OrderTrackingView";
 import { PendingPaymentPanel } from "@/components/PendingPaymentPanel";
 import { paymentFailureMessage } from "@shared/payment-messages";
-import { formatPhone } from "@shared/store-rules";
+import { formatPhone, isSameEmail } from "@shared/store-rules";
 import type { Storefront } from "@/lib/useStorefront";
 
 type SavedAddress = {
@@ -45,25 +46,28 @@ type SavedAddress = {
   addressComplement: string;
   addressReference: string;
 };
-type LegacyProfile = {
+type CustomerProfile = {
   name?: string;
   phone?: string;
   addresses?: SavedAddress[];
 };
-const LEGACY_PROFILE_KEY = "marmitaria_checkout_profiles";
-const addressesKey = (slug: string) => `marmitaria-addresses-${slug}`;
+const PROFILE_KEY = "marmitaria_checkout_profiles";
+/** Guarda para qual e-mail o código saiu: o celular pode recarregar a aba enquanto o cliente abre a caixa de entrada. */
+const codeSentKey = (slug: string) => `marmitaria-code-sent-${slug}`;
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     value
   );
 
-function readSavedAddresses(slug: string): SavedAddress[] {
-  try {
-    const saved = JSON.parse(localStorage.getItem(addressesKey(slug)) ?? "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
+function profileFor(
+  user: { user_metadata?: Record<string, unknown> },
+  slug: string
+): CustomerProfile {
+  const all = (user.user_metadata?.[PROFILE_KEY] ?? {}) as Record<
+    string,
+    CustomerProfile
+  >;
+  return all[slug] ?? {};
 }
 
 function Field({
@@ -103,9 +107,15 @@ export function StorefrontCartCheckout(s: Storefront) {
   const [changeFor, setChangeFor] = useState("");
   const [payBusy, setPayBusy] = useState(false);
   const [openNotes, setOpenNotes] = useState<number[]>([]);
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>(() =>
-    readSavedAddresses(s.slug)
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
+  const [emailConfirmation, setEmailConfirmation] = useState("");
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(() =>
+    sessionStorage.getItem(codeSentKey(s.slug))
   );
+  const [emailCode, setEmailCode] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(
     null
   );
@@ -116,30 +126,36 @@ export function StorefrontCartCheckout(s: Storefront) {
   const fieldClass =
     "h-11 rounded-xl border border-[#e7e9e4] bg-[#f8f9f7] px-3 text-base shadow-none placeholder:text-[#9ba29a] focus-visible:border-[#71917c] focus-visible:ring-2 focus-visible:ring-[#71917c]/20 md:text-base";
 
-  // Quem confirmou o e-mail em "Meus pedidos" ou comprou antes aproveita os dados da conta.
+  const typedEmail = s.customer.email.trim().toLowerCase();
+  const emailVerified = Boolean(verifiedEmail) && verifiedEmail === typedEmail;
+  const codeSent = !emailVerified && codeSentTo === typedEmail;
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typedEmail);
+  const emailsMatch = isSameEmail(s.customer.email, emailConfirmation);
+
+  const applyProfile = (user: {
+    email?: string;
+    user_metadata?: Record<string, unknown>;
+  }) => {
+    const profile = profileFor(user, s.slug);
+    const addresses = Array.isArray(profile.addresses) ? profile.addresses : [];
+    setVerifiedEmail(user.email?.toLowerCase() ?? null);
+    setSavedAddresses(addresses);
+    setSelectedAddressId(addresses[0]?.id ?? null);
+    s.setCustomer(current => ({
+      ...current,
+      name: current.name || profile.name || "",
+      phone: current.phone || formatPhone(profile.phone ?? ""),
+      email: user.email ?? current.email,
+      ...(current.address ? {} : addresses[0] ? addresses[0] : {}),
+    }));
+  };
+
   useEffect(() => {
     let active = true;
     supabase.auth
-      .getSession()
+      .getUser()
       .then(({ data }) => {
-        const user = data.session?.user;
-        if (!active || !user) return;
-        const all = (user.user_metadata?.[LEGACY_PROFILE_KEY] ?? {}) as Record<
-          string,
-          LegacyProfile
-        >;
-        const profile = all[s.slug] ?? {};
-        const addresses = Array.isArray(profile.addresses)
-          ? profile.addresses
-          : [];
-        setSavedAddresses(current => (current.length ? current : addresses));
-        s.setCustomer(current => ({
-          ...current,
-          name: current.name || profile.name || "",
-          phone: current.phone || formatPhone(profile.phone ?? ""),
-          email: current.email || user.email || "",
-          ...(current.address ? {} : addresses[0] ? addresses[0] : {}),
-        }));
+        if (active && data.user?.email_confirmed_at) applyProfile(data.user);
       })
       .catch(() => undefined);
     return () => {
@@ -150,49 +166,139 @@ export function StorefrontCartCheckout(s: Storefront) {
   const setCustomerField = (key: string, value: string) =>
     s.setCustomer(current => ({ ...current, [key]: value }));
 
-  const chooseAddress = (entry: SavedAddress) => {
-    setSelectedAddressId(entry.id);
-    s.setCustomer(current => ({
-      ...current,
-      address: entry.address,
-      addressNumber: entry.addressNumber,
-      addressComplement: entry.addressComplement,
-      addressReference: entry.addressReference,
-    }));
-  };
-
-  const rememberAddress = () => {
-    const address = s.customer.address.trim();
-    const addressNumber = s.customer.addressNumber.trim();
-    if (pickup || !address || !addressNumber) return;
-    const match = savedAddresses.find(
-      entry =>
-        entry.id === selectedAddressId ||
-        (entry.address === address && entry.addressNumber === addressNumber)
-    );
-    const record: SavedAddress = {
-      id: match?.id ?? crypto.randomUUID(),
-      label: address.split(",")[0]?.trim().slice(0, 40) || "Meu endereço",
-      address,
-      addressNumber,
-      addressComplement: s.customer.addressComplement.trim(),
-      addressReference: s.customer.addressReference.trim(),
-    };
-    const next = [
-      record,
-      ...savedAddresses.filter(entry => entry.id !== record.id),
-    ].slice(0, 10);
-    setSavedAddresses(next);
-    setSelectedAddressId(record.id);
+  const sendEmailCode = async () => {
+    if (!emailValid) {
+      setAuthError("Digite um e-mail válido.");
+      return;
+    }
+    if (!emailsMatch) {
+      setAuthError("Os dois e-mails precisam ser iguais.");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError("");
     try {
-      localStorage.setItem(addressesKey(s.slug), JSON.stringify(next));
-    } catch {
-      // Sem armazenamento: o endereço só não fica salvo para a próxima compra.
+      const { error } = await supabase.auth.signInWithOtp({
+        email: typedEmail,
+        options: { shouldCreateUser: true },
+      });
+      if (error) throw error;
+      sessionStorage.setItem(codeSentKey(s.slug), typedEmail);
+      setCodeSentTo(typedEmail);
+      toast.success(`Enviamos um código para ${typedEmail}.`);
+    } catch (error) {
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar o código."
+      );
+    } finally {
+      setAuthBusy(false);
     }
   };
 
-  const forgetDeviceData = () => {
-    localStorage.removeItem(addressesKey(s.slug));
+  const correctEmail = () => {
+    sessionStorage.removeItem(codeSentKey(s.slug));
+    setCodeSentTo(null);
+    setEmailCode("");
+    setEmailConfirmation("");
+    setAuthError("");
+  };
+
+  /** Salva nome, telefone e endereços na conta do comprador para a próxima compra. */
+  const persistAccount = async () => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    const user = data.user;
+    if (!user?.email || user.email.toLowerCase() !== typedEmail) return;
+    const current = user.user_metadata ?? {};
+    const allProfiles = (current[PROFILE_KEY] ?? {}) as Record<
+      string,
+      CustomerProfile
+    >;
+    const existing = allProfiles[s.slug] ?? {};
+    let addresses = Array.isArray(existing.addresses)
+      ? existing.addresses
+      : savedAddresses;
+    const address = s.customer.address.trim();
+    const addressNumber = s.customer.addressNumber.trim();
+    if (!pickup && address && addressNumber) {
+      const match = addresses.find(
+        entry =>
+          entry.id === selectedAddressId ||
+          (entry.address === address && entry.addressNumber === addressNumber)
+      );
+      const record: SavedAddress = {
+        id: match?.id ?? crypto.randomUUID(),
+        label: address.split(",")[0]?.trim().slice(0, 40) || "Meu endereço",
+        address,
+        addressNumber,
+        addressComplement: s.customer.addressComplement.trim(),
+        addressReference: s.customer.addressReference.trim(),
+      };
+      addresses = [
+        record,
+        ...addresses.filter(entry => entry.id !== record.id),
+      ].slice(0, 10);
+      setSelectedAddressId(record.id);
+    }
+    const profile: CustomerProfile = {
+      name: s.customer.name.trim(),
+      phone: s.customer.phone.trim(),
+      addresses,
+    };
+    const { error: saveError } = await supabase.auth.updateUser({
+      data: { ...current, [PROFILE_KEY]: { ...allProfiles, [s.slug]: profile } },
+    });
+    if (saveError) throw saveError;
+    setSavedAddresses(addresses);
+  };
+
+  /** Salvar o perfil é conveniência: uma falha aqui nunca impede o cliente de pagar. */
+  const saveAccountQuietly = () =>
+    persistAccount().catch(error =>
+      console.warn("[checkout] perfil não salvo:", error)
+    );
+
+  const verifyEmail = async () => {
+    if (!/^\d{6,8}$/.test(emailCode)) {
+      setAuthError("Digite o código enviado por e-mail.");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: typedEmail,
+        token: emailCode,
+        type: "email",
+      });
+      if (error) throw error;
+      if (!data.user?.email_confirmed_at)
+        throw new Error(
+          "O e-mail ainda não foi confirmado. Verifique o código e tente novamente."
+        );
+      sessionStorage.removeItem(codeSentKey(s.slug));
+      setCodeSentTo(null);
+      setEmailCode("");
+      applyProfile(data.user);
+      void saveAccountQuietly();
+      toast.success("E-mail confirmado. Seus dados ficam salvos para a próxima compra.");
+    } catch (error) {
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível confirmar o e-mail."
+      );
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const useAnotherEmail = async () => {
+    await supabase.auth.signOut().catch(() => undefined);
+    correctEmail();
+    setVerifiedEmail(null);
     setSavedAddresses([]);
     setSelectedAddressId(null);
     s.setCustomer(current => ({
@@ -205,7 +311,17 @@ export function StorefrontCartCheckout(s: Storefront) {
       addressComplement: "",
       addressReference: "",
     }));
-    toast.success("Seus dados foram apagados deste aparelho.");
+  };
+
+  const chooseAddress = (entry: SavedAddress) => {
+    setSelectedAddressId(entry.id);
+    s.setCustomer(current => ({
+      ...current,
+      address: entry.address,
+      addressNumber: entry.addressNumber,
+      addressComplement: entry.addressComplement,
+      addressReference: entry.addressReference,
+    }));
   };
 
   const submitPayment = async (
@@ -213,7 +329,7 @@ export function StorefrontCartCheckout(s: Storefront) {
   ) => {
     s.setPaymentError("");
     try {
-      rememberAddress();
+      await saveAccountQuietly();
       await s.handleBrickSubmit(formData);
     } catch (error) {
       s.reportPaymentFailure(paymentFailureMessage(error));
@@ -236,7 +352,7 @@ export function StorefrontCartCheckout(s: Storefront) {
     setPayBusy(true);
     s.setPaymentError("");
     try {
-      rememberAddress();
+      await saveAccountQuietly();
       await s.placeCashOrder(changeFor);
     } catch (error) {
       s.reportPaymentFailure(paymentFailureMessage(error));
@@ -268,8 +384,7 @@ export function StorefrontCartCheckout(s: Storefront) {
   const deliveryCode = s.customer.phone.replace(/\D/g, "").slice(-4);
   const contactComplete =
     s.customer.name.trim().length >= 2 &&
-    s.customer.phone.replace(/\D/g, "").length >= 10 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.customer.email.trim());
+    s.customer.phone.replace(/\D/g, "").length >= 10;
   const addressComplete =
     pickup ||
     (s.customer.address.trim().length >= 5 &&
@@ -278,14 +393,17 @@ export function StorefrontCartCheckout(s: Storefront) {
   const quoteReady =
     !s.needsDeliveryQuote ||
     (!s.deliveryQuoteLoading && Boolean(s.deliveryQuote?.quoteToken));
-  const nextCheckoutTarget = !contactComplete
+  const nextCheckoutTarget =
+    !emailVerified || !contactComplete
     ? "checkout-contact"
     : !addressComplete
       ? "checkout-address"
       : "checkout-payment";
   const nextCheckoutLabel = !s.storeStatus.open
     ? "Loja fechada"
-    : !contactComplete
+    : !emailVerified
+      ? "Confirmar e-mail"
+      : !contactComplete
     ? "Preencher seus dados"
     : !addressComplete
       ? "Informar endereço"
@@ -498,23 +616,134 @@ export function StorefrontCartCheckout(s: Storefront) {
                           />
                         </Field>
                       </div>
-                      <div className="mt-2.5">
-                        <Field label="E-mail">
-                          <Input
-                            type="email"
-                            value={s.customer.email}
-                            onChange={e =>
-                              setCustomerField("email", e.target.value)
-                            }
-                            placeholder="voce@exemplo.com"
-                            autoComplete="email"
-                            className={fieldClass}
-                          />
-                        </Field>
-                        <p className="mt-1 text-xs text-[#788078]">
-                          Usamos para enviar o comprovante e os avisos do
-                          pedido.
-                        </p>
+                      <div className="mt-2.5 space-y-2.5">
+                        {emailVerified ? (
+                          <div className="rounded-xl bg-[#eff5ef] p-3">
+                            <p className="flex items-center gap-1.5 text-sm font-semibold text-[#347052]">
+                              <Check className="h-4 w-4 shrink-0" />
+                              <span className="truncate">
+                                {s.customer.email}
+                              </span>
+                            </p>
+                            <p className="mt-0.5 text-xs text-[#526d58]">
+                              E-mail confirmado. Seus dados ficam salvos para a
+                              próxima compra.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={useAnotherEmail}
+                              className="mt-1 text-xs font-semibold text-[#526d58] underline"
+                            >
+                              Usar outro e-mail
+                            </button>
+                          </div>
+                        ) : codeSent ? (
+                          <div className="rounded-xl bg-[#f8faf7] p-3">
+                            <p className="text-sm text-[#414941]">
+                              Enviamos um código para{" "}
+                              <strong className="break-all">{typedEmail}</strong>
+                              . Confira também o spam.
+                            </p>
+                            <div className="mt-2 flex gap-2">
+                              <Input
+                                value={emailCode}
+                                onChange={e =>
+                                  setEmailCode(
+                                    e.target.value.replace(/\D/g, "").slice(0, 8)
+                                  )
+                                }
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                placeholder="Código do e-mail"
+                                aria-label="Código enviado por e-mail"
+                                className={fieldClass}
+                              />
+                              <Button
+                                type="button"
+                                onClick={verifyEmail}
+                                disabled={authBusy || emailCode.length < 6}
+                                className="h-11 shrink-0 rounded-xl px-4 text-white"
+                                style={{ backgroundColor: accent }}
+                              >
+                                {authBusy ? "…" : "Validar"}
+                              </Button>
+                            </div>
+                            <div className="mt-1 flex gap-4">
+                              <button
+                                type="button"
+                                onClick={sendEmailCode}
+                                disabled={authBusy}
+                                className="py-1.5 text-xs font-semibold text-[#526d58] underline"
+                              >
+                                Reenviar código
+                              </button>
+                              <button
+                                type="button"
+                                onClick={correctEmail}
+                                className="py-1.5 text-xs font-semibold text-[#526d58] underline"
+                              >
+                                Corrigir e-mail
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <Field label="E-mail">
+                              <Input
+                                type="email"
+                                value={s.customer.email}
+                                onChange={e => {
+                                  setAuthError("");
+                                  setCustomerField("email", e.target.value);
+                                }}
+                                placeholder="voce@exemplo.com"
+                                autoComplete="email"
+                                className={fieldClass}
+                              />
+                            </Field>
+                            <Field label="Confirme o e-mail">
+                              <Input
+                                type="email"
+                                value={emailConfirmation}
+                                onChange={e => {
+                                  setAuthError("");
+                                  setEmailConfirmation(e.target.value);
+                                }}
+                                onPaste={e => e.preventDefault()}
+                                placeholder="Digite de novo"
+                                autoComplete="off"
+                                aria-invalid={
+                                  Boolean(emailConfirmation) && !emailsMatch
+                                }
+                                className={fieldClass}
+                              />
+                            </Field>
+                            {emailConfirmation && !emailsMatch && (
+                              <p role="alert" className="text-xs text-red-600">
+                                Os dois e-mails precisam ser iguais.
+                              </p>
+                            )}
+                            <Button
+                              type="button"
+                              onClick={sendEmailCode}
+                              disabled={authBusy || !emailValid || !emailsMatch}
+                              className="h-11 w-full rounded-xl text-white"
+                              style={{ backgroundColor: accent }}
+                            >
+                              <MailCheck className="mr-2 h-4 w-4" />
+                              {authBusy ? "Enviando…" : "Enviar código"}
+                            </Button>
+                            <p className="text-xs text-[#788078]">
+                              Confirmando o e-mail, seus dados ficam salvos para
+                              a próxima compra.
+                            </p>
+                          </>
+                        )}
+                        {authError && (
+                          <p role="alert" className="text-xs text-red-600">
+                            {authError}
+                          </p>
+                        )}
                       </div>
 
                       <div
@@ -641,15 +870,6 @@ export function StorefrontCartCheckout(s: Storefront) {
                           </>
                         )}
                       </div>
-                      {(savedAddresses.length > 0 || s.customer.name) && (
-                        <button
-                          type="button"
-                          onClick={forgetDeviceData}
-                          className="mt-3 text-xs font-medium text-[#788078] underline"
-                        >
-                          Apagar meus dados deste aparelho
-                        </button>
-                      )}
                     </section>
 
                     <aside className="rounded-3xl border border-[#e4e8e1] bg-white p-4 shadow-[0_14px_42px_rgba(30,45,33,0.07)] sm:p-5">
@@ -764,9 +984,13 @@ export function StorefrontCartCheckout(s: Storefront) {
                             {s.storeStatus.label}. Seu carrinho fica guardado
                             até lá.
                           </p>
+                        ) : !emailVerified ? (
+                          <p className="rounded-xl bg-[#f8faf7] p-3 text-sm text-[#737d73]">
+                            Confirme seu e-mail para liberar o pagamento.
+                          </p>
                         ) : !contactComplete ? (
                           <p className="rounded-xl bg-[#f8faf7] p-3 text-sm text-[#737d73]">
-                            Preencha nome, WhatsApp e e-mail para continuar.
+                            Preencha nome e WhatsApp para continuar.
                           </p>
                         ) : !addressComplete ? (
                           <p className="rounded-xl bg-[#f8faf7] p-3 text-sm text-[#737d73]">

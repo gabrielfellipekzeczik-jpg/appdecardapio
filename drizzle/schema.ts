@@ -246,6 +246,28 @@ export const inventoryItems = marmitaria.table(
   })
 );
 
+/** Ficha técnica: quanto de cada insumo vai em uma porção pronta de um prato. */
+export const recipeIngredients = marmitaria.table(
+  "recipe_ingredients",
+  {
+    id: serial("id").primaryKey(),
+    companyId: integer("companyId").notNull(),
+    menuItemId: integer("menuItemId").notNull(),
+    inventoryItemId: integer("inventoryItemId").notNull(),
+    quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
+    unit: varchar("unit", { length: 20 }).notNull(),
+    lossPercent: numeric("lossPercent", { precision: 5, scale: 2 }),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  table => ({
+    itemUnique: unique("recipe_ingredients_item_unique").on(
+      table.menuItemId,
+      table.inventoryItemId
+    ),
+    companyIdx: index("recipe_ingredients_company_idx").on(table.companyId),
+  })
+);
+
 export const inventoryMovementTypeEnum = marmitaria.enum(
   "inventory_movement_type",
   ["in", "out", "adjustment"]

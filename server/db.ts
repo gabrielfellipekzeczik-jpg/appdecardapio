@@ -22,6 +22,8 @@ import {
   testListCustomerOrders,
   testListExpenses,
   testListInventory,
+  testListRecipeIngredients,
+  testSaveRecipe,
   testListRecentOrders,
   testSetOrderDelivery,
   testSetOrderPayment,
@@ -487,7 +489,7 @@ export async function createCustomerOrder(
   };
 }
 
-/** Barreira contra pedidos falsos: agora que a compra não exige confirmação de e-mail. */
+/** Barreira contra pedidos falsos em série, inclusive os pagos só na entrega. */
 export async function countRecentUnpaidOrders(
   companyId: number,
   phone: string
@@ -1232,6 +1234,81 @@ export async function recordInventoryMovement(
     );
   }
   return data as Record<string, unknown>;
+}
+
+export async function listRecipeIngredients(companyId: number) {
+  if (isTestMode()) return testListRecipeIngredients();
+  const db = getDb();
+  const { data, error } = await db
+    .from("recipe_ingredients")
+    .select("menuItemId,inventoryItemId,quantity,unit,lossPercent")
+    .eq("companyId", companyId);
+  if (error)
+    throw new Error(`[DB] Falha ao listar fichas técnicas: ${error.message}`);
+  return (data ?? []) as {
+    menuItemId: number;
+    inventoryItemId: number;
+    quantity: number | string;
+    unit: string;
+    lossPercent: number | string | null;
+  }[];
+}
+
+/** Grava antes de apagar o que saiu da ficha: uma falha no meio não deixa o prato sem receita. */
+export async function saveRecipe(
+  companyId: number,
+  input: {
+    menuItemId: number;
+    lines: {
+      inventoryItemId: number;
+      quantity: number;
+      unit: string;
+      lossPercent: number | null;
+    }[];
+  }
+) {
+  if (isTestMode()) return testSaveRecipe(input);
+  const db = getDb();
+  const { data: dish } = await db
+    .from("menu_items")
+    .select("id")
+    .eq("id", input.menuItemId)
+    .eq("companyId", companyId)
+    .maybeSingle();
+  if (!dish) return false;
+  if (input.lines.length) {
+    const { error } = await db.from("recipe_ingredients").upsert(
+      input.lines.map(line => ({
+        companyId,
+        menuItemId: input.menuItemId,
+        inventoryItemId: line.inventoryItemId,
+        quantity: line.quantity.toFixed(3),
+        unit: line.unit,
+        lossPercent: line.lossPercent?.toFixed(2) ?? null,
+        updatedAt: new Date().toISOString(),
+      })) as Record<string, unknown>[],
+      { onConflict: "menuItemId,inventoryItemId" }
+    );
+    if (error)
+      throw new Error(`[DB] Falha ao salvar ficha técnica: ${error.message}`);
+  }
+  let removal = db
+    .from("recipe_ingredients")
+    .delete()
+    .eq("companyId", companyId)
+    .eq("menuItemId", input.menuItemId);
+  if (input.lines.length)
+    removal = removal.not(
+      "inventoryItemId",
+      "in",
+      `(${input.lines.map(line => line.inventoryItemId).join(",")})`
+    );
+  const { error: removalError } = await removal;
+  if (removalError)
+    throw new Error(
+      `[DB] Falha ao atualizar ficha técnica: ${removalError.message}`
+    );
+  return true;
 }
 
 export async function listInventoryMovements(companyId: number, limit = 100) {

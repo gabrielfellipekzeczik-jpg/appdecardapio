@@ -3,6 +3,7 @@ import { eventForStatus, isForwardMove, notifyOrderEvent } from "./notifications
 import { clientIp, createRateLimiter } from "./_core/rateLimit";
 import { isReadyForKitchen } from "@shared/payment-messages";
 import { getStoreStatus, isPickupOrder } from "@shared/store-rules";
+import { MAX_LOSS_PERCENT, compatibleUnits } from "@shared/production-plan";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
@@ -53,6 +54,8 @@ import {
   listAdminMenu,
   listCustomerOrders,
   listInventory,
+  listRecipeIngredients,
+  saveRecipe,
   listRecentExpenses,
   listRecentOrders,
   ORDER_STATUS_FLOW,
@@ -525,6 +528,20 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        if (
+          !ctx.user ||
+          ctx.user.email?.toLowerCase() !== input.email.trim().toLowerCase()
+        )
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message:
+              "Confirme o e-mail e entre na conta de comprador antes de criar o pedido.",
+          });
+        if (!(await isSupabaseEmailConfirmed(ctx.req, input.email)))
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Confirme seu e-mail antes de criar o pedido.",
+          });
         if (!isTestMode() && !orderRateLimiter(clientIp(ctx.req)))
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
@@ -1016,6 +1033,53 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+  recipes: router({
+    list: companyAdminProcedure.query(({ ctx }) =>
+      listRecipeIngredients(ctx.companyId)
+    ),
+    save: companyAdminProcedure
+      .input(
+        z.object({
+          menuItemId: z.number().int().positive(),
+          lines: z
+            .array(
+              z.object({
+                inventoryItemId: z.number().int().positive(),
+                quantity: z.number().positive().max(1_000_000),
+                unit: z.string().min(1).max(20),
+                lossPercent: z.number().min(0).max(MAX_LOSS_PERCENT).nullable(),
+              })
+            )
+            .max(60),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const stock = await listInventory(ctx.companyId);
+        const units = new Map(
+          stock.map(item => [Number(item.id), String(item.unit)])
+        );
+        for (const line of input.lines) {
+          const stockUnit = units.get(line.inventoryItemId);
+          if (!stockUnit)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Um dos insumos não pertence ao seu estoque.",
+            });
+          if (!compatibleUnits(stockUnit).includes(line.unit))
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `A unidade ${line.unit} não combina com ${stockUnit}.`,
+            });
+        }
+        const saved = await saveRecipe(ctx.companyId, input);
+        if (!saved)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Prato não encontrado.",
+          });
+        return { saved: true };
+      }),
+  }),
   inventory: router({
     list: companyAdminProcedure.query(({ ctx }) =>
       listInventory(ctx.companyId)
@@ -1260,6 +1324,20 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const company = await requireCompanyBySlug(input.companySlug);
+        if (
+          !ctx.user ||
+          ctx.user.email?.toLowerCase() !==
+            input.payerEmail.trim().toLowerCase()
+        )
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Confirme seu e-mail antes de pagar.",
+          });
+        if (!(await isSupabaseEmailConfirmed(ctx.req, input.payerEmail)))
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Confirme seu e-mail antes de pagar.",
+          });
         if (isBoletoPaymentMethod(input.paymentMethodId)) {
           throw new TRPCError({
             code: "BAD_REQUEST",

@@ -99,3 +99,9 @@ export function formatPhone(raw: string): string {
     ? `${area}${digits.slice(2)}`
     : `${area}${digits.slice(2, split)}-${digits.slice(split)}`;
 }
+
+/** Compara os dois campos de e-mail do checkout sem diferenciar maiúsculas. */
+export function isSameEmail(first: string, second: string) {
+  const normalized = first.trim().toLowerCase();
+  return normalized.length > 0 && normalized === second.trim().toLowerCase();
+}

@@ -31,6 +31,7 @@ import {
   DEFAULT_OPENING_HOURS,
   formatPhone,
   getStoreStatus,
+  isSameEmail,
 } from "@shared/store-rules";
 
 const TOKEN = "22222222-2222-4222-8222-222222222222";
@@ -215,11 +216,25 @@ const guestOrder = {
   items: [{ menuItemId: 1, quantity: 1 }],
 };
 
-describe("compra sem conta", () => {
+describe("compra com e-mail confirmado", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("cria o pedido e gera o pagamento sem login", async () => {
-    const created = await guest().orders.create({
+  it("recusa pedido e pagamento sem e-mail confirmado", async () => {
+    await expect(
+      guest().orders.create({ ...guestOrder, companySlug: "loja-teste" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(
+      guest().payments.create({
+        companySlug: "loja-teste",
+        orderId: 1,
+        payerEmail: EMAIL,
+        paymentMethodId: "pix",
+      })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("envia os dados do comprador ao gerar o pagamento", async () => {
+    const created = await caller().orders.create({
       ...guestOrder,
       companySlug: "loja-teste",
     });
@@ -229,7 +244,7 @@ describe("compra sem conta", () => {
       status_detail: "pending_waiting_transfer",
       applicationFee: 0,
     });
-    await guest().payments.create({
+    await caller().payments.create({
       companySlug: "loja-teste",
       orderId: created.orderId!,
       payerEmail: EMAIL,
@@ -243,14 +258,14 @@ describe("compra sem conta", () => {
 
   it("só aceita dinheiro e retirada quando a loja permite", async () => {
     await expect(
-      guest().orders.create({
+      caller().orders.create({
         ...guestOrder,
         companySlug: "loja-teste",
         paymentMethod: "cash_on_delivery",
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      guest().orders.create({
+      caller().orders.create({
         ...guestOrder,
         companySlug: "loja-teste",
         fulfillment: "pickup",
@@ -259,13 +274,13 @@ describe("compra sem conta", () => {
   });
 
   it("registra retirada paga na loja", async () => {
-    const created = await guest().orders.create({
+    const created = await caller().orders.create({
       ...guestOrder,
       companySlug: "loja-completa",
       paymentMethod: "cash_on_delivery",
       fulfillment: "pickup",
     });
-    const found = await guest().orders.byId({
+    const found = await caller().orders.byId({
       companySlug: "loja-completa",
       id: created.orderId!,
     });
@@ -313,6 +328,12 @@ describe("regras da loja", () => {
     expect(formatPhone("1133334444")).toBe("(11) 3333-4444");
     expect(formatPhone("119")).toBe("(11) 9");
     expect(formatPhone("")).toBe("");
+  });
+
+  it("compara os dois campos de e-mail", () => {
+    expect(isSameEmail(" Ana@Teste.com", "ana@teste.com ")).toBe(true);
+    expect(isSameEmail("ana@teste.com", "ana@teste.con")).toBe(false);
+    expect(isSameEmail("", "")).toBe(false);
   });
 
   it("limita pedidos por janela de tempo", () => {
