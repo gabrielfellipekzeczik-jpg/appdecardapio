@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { findNewOrderIds } from "@shared/order-alerts";
-import { isReadyForKitchen } from "@shared/payment-messages";
 import { isPickupOrder } from "@shared/store-rules";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -286,10 +285,7 @@ export default function Kitchen() {
 
   // Alerta sonoro + toast em novo pedido
   useEffect(() => {
-    const currentIds =
-      ordersQuery.data
-        ?.filter(({ order }) => isReadyForKitchen(order))
-        .map(({ order }) => order.id) ?? [];
+    const currentIds = ordersQuery.data?.map(({ order }) => order.id) ?? [];
     const newIds = findNewOrderIds(seenOrderIds.current, currentIds);
     if (seenOrderIds.current.length > 0 && newIds.length > 0) {
       toast.info(`${newIds.length === 1 ? "Novo pedido" : `${newIds.length} novos pedidos`}!`, {
@@ -334,7 +330,7 @@ export default function Kitchen() {
   // Converte os dados da query para KitchenOrder
   const activeStatuses = new Set<string>(["received", "preparing", "ready", "out_for_delivery"]);
   const kitchenOrders: KitchenOrder[] = (ordersQuery.data ?? [])
-    .filter(({ order }) => activeStatuses.has(order.status) && isReadyForKitchen(order))
+    .filter(({ order }) => activeStatuses.has(order.status))
     .map(({ order, customer }) => ({
       id: order.id,
       customer: customer?.name ?? "Cliente",

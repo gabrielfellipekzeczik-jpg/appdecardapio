@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { calculateDeliveryFee } from "@shared/checkout";
 import { buildFinanceReport } from "@shared/finance";
+import { isReadyForKitchen } from "@shared/payment-messages";
 import {
   PICKUP_ADDRESS,
   isPickupOrder,
@@ -23,6 +24,7 @@ import {
   testListExpenses,
   testListInventory,
   testListRecipeIngredients,
+  testUpdateInventoryItem,
   testSaveRecipe,
   testListRecentOrders,
   testSetOrderDelivery,
@@ -296,13 +298,20 @@ async function loadCustomersFor(
   return (data ?? []) as Customer[];
 }
 
+/** Fila de produção: pedido online só entra depois de pago. A regra fica aqui para valer em qualquer tela, até em abas antigas. */
 export async function listRecentOrders(companyId: number, limit = 20) {
-  if (isTestMode()) return testListRecentOrders(limit);
+  if (isTestMode())
+    return testListRecentOrders(1000)
+      .filter(({ order }) => isReadyForKitchen(order))
+      .slice(0, limit);
   const db = getDb();
   const { data, error } = await db
     .from("orders")
     .select("*")
     .eq("companyId", companyId)
+    .or(
+      "paymentMethod.is.null,paymentMethod.neq.mercadopago,paymentStatus.eq.approved"
+    )
     .order("createdAt", { ascending: false })
     .limit(limit);
   if (error) throw new Error(`[DB] Falha ao listar pedidos: ${error.message}`);
@@ -1141,6 +1150,7 @@ export async function listInventory(companyId: number) {
     .from("inventory_items")
     .select("*")
     .eq("companyId", companyId)
+    .eq("active", true)
     .order("name");
   return (data ?? []) as Record<string, unknown>[];
 }
@@ -1207,6 +1217,37 @@ export async function createInventoryItem(
       `[DB] Falha ao cadastrar item de estoque: ${error.message}`
     );
   return data as InventoryItemResult;
+}
+
+export async function updateInventoryItem(
+  companyId: number,
+  input: {
+    itemId: number;
+    costPerUnit?: number;
+    minimumQuantity?: number;
+    active?: boolean;
+  }
+) {
+  if (isTestMode()) return testUpdateInventoryItem(input);
+  const db = getDb();
+  const { data, error } = await db
+    .from("inventory_items")
+    .update({
+      ...(input.costPerUnit === undefined
+        ? {}
+        : { costPerUnit: input.costPerUnit.toFixed(2) }),
+      ...(input.minimumQuantity === undefined
+        ? {}
+        : { minimumQuantity: input.minimumQuantity.toFixed(3) }),
+      ...(input.active === undefined ? {} : { active: input.active }),
+      updatedAt: new Date().toISOString(),
+    } as Record<string, unknown>)
+    .eq("id", input.itemId)
+    .eq("companyId", companyId)
+    .select("id");
+  if (error)
+    throw new Error(`[DB] Falha ao atualizar item de estoque: ${error.message}`);
+  return ((data ?? []) as unknown[]).length > 0;
 }
 
 export async function recordInventoryMovement(

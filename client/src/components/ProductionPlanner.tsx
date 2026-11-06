@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CircleAlert,
+  Check,
   ClipboardCopy,
   Download,
   MessageCircle,
@@ -29,7 +30,7 @@ import {
   type ShoppingLine,
 } from "@shared/production-plan";
 
-const STOCK_UNITS = ["un", "kg", "g", "L", "ml", "cx", "pct"] as const;
+const STOCK_UNITS = ["kg", "g", "L", "ml", "un", "cx", "pct"] as const;
 type StockUnit = (typeof STOCK_UNITS)[number];
 
 const money = (value: number) =>
@@ -69,7 +70,7 @@ function listAsText(lines: ShoppingLine[]) {
 
 function downloadCsv(lines: ShoppingLine[]) {
   const rows = [
-    ["Insumo", "Unidade", "Necessário", "Em estoque", "Comprar", "Custo estimado"],
+    ["Ingrediente", "Unidade", "Necessário", "Em estoque", "Comprar", "Custo estimado"],
     ...lines.map(line => [
       line.name,
       line.unit,
@@ -106,6 +107,9 @@ export function ProductionPlanner({ slug }: { slug: string }) {
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(
     null
   );
+  const utils = trpc.useUtils();
+  const recordMovement = trpc.inventory.recordMovement.useMutation();
+  const [buying, setBuying] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -172,12 +176,34 @@ export function ProductionPlanner({ slug }: { slug: string }) {
     }
   };
 
+  const markBought = async (line: ShoppingLine) => {
+    setBuying(line.inventoryItemId);
+    try {
+      await recordMovement.mutateAsync({
+        itemId: line.inventoryItemId,
+        type: "in",
+        quantity: line.toBuy,
+        reason: "Comprado pela lista",
+      });
+      await Promise.all([
+        utils.inventory.list.invalidate(),
+        utils.inventory.movements.invalidate(),
+      ]);
+      toast.success(`${line.name} somado ao estoque.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível salvar."
+      );
+    } finally {
+      setBuying(null);
+    }
+  };
+
   if (recipesQuery.isError)
     return (
       <Card className="rounded-2xl border-[#f0ddc5] bg-[#fffaf3]">
         <CardContent className="p-5 text-sm text-[#7e4c2d]">
-          Não foi possível abrir as fichas técnicas. Confira se a migração
-          0009_recipe_ingredients foi aplicada no Supabase.
+          Não foi possível abrir as receitas. Tente de novo em instantes.
         </CardContent>
       </Card>
     );
@@ -188,11 +214,11 @@ export function ProductionPlanner({ slug }: { slug: string }) {
       <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
         <CardHeader>
           <CardTitle className="font-display text-lg">
-            O que você vai produzir
+            2. O que vou produzir
           </CardTitle>
           <p className="text-sm text-[#776e63]">
-            Informe as porções de cada prato. Pratos sem ficha técnica não
-            entram na conta.
+            Diga o que vai em cada prato uma única vez, em "Montar receita".
+            Depois é só informar quantas porções vai fazer.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -221,8 +247,8 @@ export function ProductionPlanner({ slug }: { slug: string }) {
                       className={`text-xs font-semibold underline ${count ? "text-[#526d58]" : "text-[#a05c32]"}`}
                     >
                       {count
-                        ? `Ficha técnica · ${count} ${count === 1 ? "insumo" : "insumos"}`
-                        : "Montar ficha técnica"}
+                        ? `Ver receita · ${count} ${count === 1 ? "ingrediente" : "ingredientes"}`
+                        : "Montar receita"}
                     </button>
                   </div>
                   <label className="flex items-center gap-2 text-sm text-[#776e63]">
@@ -247,7 +273,7 @@ export function ProductionPlanner({ slug }: { slug: string }) {
           </div>
           <div className="flex flex-wrap items-end gap-4 border-t border-[#eeeae3] pt-4">
             <label className="text-sm font-semibold">
-              Margem de perda (%)
+              Perda no preparo (%)
               <Input
                 inputMode="decimal"
                 value={loss}
@@ -262,13 +288,13 @@ export function ProductionPlanner({ slug }: { slug: string }) {
                 onChange={event => setKeepMinimum(event.target.checked)}
                 className="h-4 w-4 accent-[#2f5d50]"
               />
-              Manter o estoque mínimo depois de produzir
+              Sobrar a quantidade de aviso de cada ingrediente
             </label>
           </div>
           <p className="text-xs text-[#776e63]">
-            A perda é calculada sobre o que você compra: com {amount(lossPercent)}
-            %, 1 kg pronto pede {amount(1 / (1 - lossPercent / 100))} kg. Um
-            insumo com perda própria na ficha técnica ignora esta margem.
+            Com {amount(lossPercent)}% de perda, 1 kg pronto pede{" "}
+            {amount(1 / (1 - lossPercent / 100))} kg comprados. Se um ingrediente
+            perde mais, ajuste na receita dele.
           </p>
         </CardContent>
       </Card>
@@ -278,7 +304,7 @@ export function ProductionPlanner({ slug }: { slug: string }) {
           <CardContent className="flex items-start gap-3 p-4 text-sm text-[#7e4c2d]">
             <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
             <p>
-              Fora da conta por não ter ficha técnica:{" "}
+              Fora da conta por não ter receita:{" "}
               {plan.dishesWithoutRecipe.join(", ")}.
             </p>
           </CardContent>
@@ -290,14 +316,14 @@ export function ProductionPlanner({ slug }: { slug: string }) {
           <CardHeader className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div>
               <CardTitle className="font-display text-lg">
-                Lista de compras
+                3. O que comprar
               </CardTitle>
               <p className="text-sm text-[#776e63]">
                 {plan.shoppingList.length
-                  ? `${plan.shoppingList.length} ${plan.shoppingList.length === 1 ? "item" : "itens"} · custo estimado ${money(plan.totalCost)}`
-                  : "Seu estoque já cobre esta produção."}
+                  ? `${plan.shoppingList.length} ${plan.shoppingList.length === 1 ? "item" : "itens"}${plan.totalCost > 0 ? ` · cerca de ${money(plan.totalCost)}` : ""}`
+                  : "Você já tem tudo para esta produção."}
                 {plan.itemsWithoutCost > 0 &&
-                  ` · ${plan.itemsWithoutCost} sem custo cadastrado`}
+                  ` · ${plan.itemsWithoutCost} sem preço informado`}
               </p>
             </div>
             {plan.shoppingList.length > 0 && (
@@ -335,24 +361,33 @@ export function ProductionPlanner({ slug }: { slug: string }) {
               {plan.lines.map(line => (
                 <div
                   key={line.inventoryItemId}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 py-3"
+                  className="flex items-center gap-3 py-3"
                 >
-                  <p className="truncate font-semibold">{line.name}</p>
-                  <p
-                    className={`text-right font-semibold ${line.toBuy > 0 ? "text-[#a05c32]" : "text-[#347052]"}`}
-                  >
-                    {line.toBuy > 0
-                      ? `Comprar ${amount(line.toBuy)} ${line.unit}`
-                      : "Tem em estoque"}
-                  </p>
-                  <p className="truncate text-xs text-[#776e63]">
-                    Precisa de {amount(line.needed)} {line.unit} · tem{" "}
-                    {amount(line.inStock)} {line.unit}
-                  </p>
-                  <p className="text-right text-xs text-[#776e63]">
-                    {line.toBuy > 0 &&
-                      (line.hasCost ? money(line.estimatedCost) : "sem custo")}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{line.name}</p>
+                    <p className="text-xs text-[#776e63]">
+                      Precisa de {amount(line.needed)} {line.unit} · tem{" "}
+                      {amount(line.inStock)} {line.unit}
+                    </p>
+                    <p
+                      className={`text-sm font-semibold ${line.toBuy > 0 ? "text-[#a05c32]" : "text-[#347052]"}`}
+                    >
+                      {line.toBuy > 0
+                        ? `Comprar ${amount(line.toBuy)} ${line.unit}${line.hasCost ? ` · ${money(line.estimatedCost)}` : ""}`
+                        : "Já tem o suficiente"}
+                    </p>
+                  </div>
+                  {line.toBuy > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => markBought(line)}
+                      disabled={buying === line.inventoryItemId}
+                      className="h-11 shrink-0 rounded-xl"
+                    >
+                      <Check className="mr-1 h-4 w-4" /> Comprei
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -362,8 +397,8 @@ export function ProductionPlanner({ slug }: { slug: string }) {
 
       {!hasPlan && recipes.length > 0 && (
         <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-[#e5e0d7] p-6 text-sm text-[#776e63]">
-          <ShoppingCart className="h-4 w-4" /> Informe as porções para montar a
-          lista de compras.
+          <ShoppingCart className="h-4 w-4" /> Informe as porções para ver o que
+          comprar.
         </p>
       )}
 
@@ -417,25 +452,35 @@ function RecipeDialog({
           : String(line.lossPercent).replace(".", ","),
     }))
   );
+  const [created, setCreated] = useState<PlanStockItem[]>([]);
   const [newName, setNewName] = useState("");
   const [newUnit, setNewUnit] = useState<StockUnit>("kg");
   const saveMutation = trpc.recipes.save.useMutation();
   const createItem = trpc.inventory.createItem.useMutation();
 
-  const available = stock.filter(
-    item => !draft.some(line => line.inventoryItemId === item.id)
+  const known = [...stock, ...created.filter(item => !stock.some(entry => entry.id === item.id))];
+  const match = known.find(
+    item =>
+      item.name.trim().toLocaleLowerCase("pt-BR") ===
+      newName.trim().toLocaleLowerCase("pt-BR")
   );
-  const addLine = (item: { id: number; unit: string }) =>
-    setDraft(current => [
-      ...current,
-      {
-        inventoryItemId: item.id,
-        quantity: "",
-        // Porção costuma ser pequena: já sugere gramas ou mililitros.
-        unit: compatibleUnits(item.unit)[0],
-        lossPercent: "",
-      },
-    ]);
+  const addLine = (item: { id: number; unit: string }) => {
+    setDraft(current =>
+      current.some(line => line.inventoryItemId === item.id)
+        ? current
+        : [
+            ...current,
+            {
+              inventoryItemId: item.id,
+              quantity: "",
+              // Porção costuma ser pequena: já sugere gramas ou mililitros.
+              unit: compatibleUnits(item.unit)[0],
+              lossPercent: "",
+            },
+          ]
+    );
+    setNewName("");
+  };
   const updateLine = (id: number, patch: Partial<DraftLine>) =>
     setDraft(current =>
       current.map(line =>
@@ -443,7 +488,11 @@ function RecipeDialog({
       )
     );
 
-  const createIngredient = async () => {
+  const addIngredient = async () => {
+    if (match) {
+      addLine(match);
+      return;
+    }
     try {
       const item = await createItem.mutateAsync({
         name: newName.trim(),
@@ -451,12 +500,24 @@ function RecipeDialog({
         minimumQuantity: 0,
         costPerUnit: 0,
       });
+      setCreated(current => [
+        ...current,
+        {
+          id: item.id,
+          name: newName.trim(),
+          unit: newUnit,
+          currentQuantity: 0,
+          minimumQuantity: 0,
+          costPerUnit: 0,
+        },
+      ]);
       addLine({ id: item.id, unit: newUnit });
-      setNewName("");
       onStockChanged();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Não foi possível criar o insumo."
+        error instanceof Error
+          ? error.message
+          : "Não foi possível criar o ingrediente."
       );
     }
   };
@@ -478,13 +539,13 @@ function RecipeDialog({
     );
     if (invalid) {
       toast.error(
-        `Informe a quantidade de cada insumo. A perda vai de 0 a ${MAX_LOSS_PERCENT}%.`
+        `Informe a quantidade de cada ingrediente. A perda vai de 0 a ${MAX_LOSS_PERCENT}%.`
       );
       return;
     }
     try {
       await saveMutation.mutateAsync({ menuItemId: dish.id, lines: parsed });
-      toast.success("Ficha técnica salva.");
+      toast.success("Receita salva.");
       onSaved();
     } catch (error) {
       toast.error(
@@ -499,12 +560,55 @@ function RecipeDialog({
         <DialogHeader>
           <DialogTitle className="font-display text-xl">{dish.name}</DialogTitle>
           <DialogDescription>
-            Quanto de cada insumo vai em uma porção pronta.
+            O que vai em 1 porção pronta. Exemplo: 150 g de arroz.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="rounded-xl bg-[#f8f6f1] p-3">
+            <label className="text-xs font-semibold">
+              Adicionar ingrediente
+              <Input
+                value={newName}
+                onChange={event => setNewName(event.target.value)}
+                list="recipe-ingredient-names"
+                placeholder="Ex.: Arroz"
+                className="mt-1 h-11 rounded-xl bg-white text-base"
+              />
+              <datalist id="recipe-ingredient-names">
+                {known.map(item => (
+                  <option key={item.id} value={item.name} />
+                ))}
+              </datalist>
+            </label>
+            {newName.trim().length >= 2 && !match && (
+              <label className="mt-2 block text-xs font-semibold">
+                Ingrediente novo. Como você compra?
+                <select
+                  value={newUnit}
+                  onChange={event =>
+                    setNewUnit(event.target.value as StockUnit)
+                  }
+                  className="mt-1 h-11 w-full rounded-xl border border-[#e5e0d7] bg-white px-2 text-base"
+                >
+                  {STOCK_UNITS.map(unit => (
+                    <option key={unit}>{unit}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addIngredient}
+              disabled={newName.trim().length < 2 || createItem.isPending}
+              className="mt-2 h-11 w-full rounded-xl bg-white"
+            >
+              <Plus className="mr-1.5 h-4 w-4" /> Adicionar à receita
+            </Button>
+          </div>
+
           {draft.map(line => {
-            const item = stock.find(entry => entry.id === line.inventoryItemId);
+            const item = known.find(entry => entry.id === line.inventoryItemId);
             return (
               <div
                 key={line.inventoryItemId}
@@ -512,11 +616,11 @@ function RecipeDialog({
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-semibold">
-                    {item?.name ?? "Insumo"}
+                    {item?.name ?? "Ingrediente"}
                   </p>
                   <button
                     type="button"
-                    aria-label={`Remover ${item?.name ?? "insumo"}`}
+                    aria-label={`Remover ${item?.name ?? "ingrediente"}`}
                     onClick={() =>
                       setDraft(current =>
                         current.filter(
@@ -525,14 +629,14 @@ function RecipeDialog({
                         )
                       )
                     }
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-[#a79b8d] hover:bg-[#f1ece3]"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[#a79b8d] hover:bg-[#f1ece3]"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="mt-1 flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2">
                   <label className="text-xs font-semibold">
-                    Por porção
+                    Em 1 porção
                     <Input
                       inputMode="decimal"
                       value={line.quantity}
@@ -560,7 +664,7 @@ function RecipeDialog({
                     ))}
                   </select>
                   <label className="text-xs font-semibold">
-                    Perda própria (%)
+                    Perda (%), se for diferente
                     <Input
                       inputMode="decimal"
                       value={line.lossPercent}
@@ -569,8 +673,8 @@ function RecipeDialog({
                           lossPercent: event.target.value,
                         })
                       }
-                      placeholder="Geral"
-                      className="mt-1 h-11 w-24 rounded-xl text-base"
+                      placeholder="Padrão"
+                      className="mt-1 h-11 w-28 rounded-xl text-base"
                     />
                   </label>
                 </div>
@@ -578,70 +682,12 @@ function RecipeDialog({
             );
           })}
 
-          {available.length > 0 && (
-            <select
-              aria-label="Adicionar insumo do estoque"
-              value=""
-              onChange={event => {
-                const item = available.find(
-                  entry => entry.id === Number(event.target.value)
-                );
-                if (item) addLine(item);
-              }}
-              className="h-11 w-full rounded-xl border border-[#e5e0d7] bg-white px-3 text-base"
-            >
-              <option value="">Adicionar insumo do estoque…</option>
-              {available.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({item.unit})
-                </option>
-              ))}
-            </select>
-          )}
-
-          <div className="rounded-xl bg-[#f8f6f1] p-3">
-            <p className="text-xs font-semibold">Insumo novo</p>
-            <div className="mt-1 flex gap-2">
-              <Input
-                value={newName}
-                onChange={event => setNewName(event.target.value)}
-                placeholder="Ex.: Arroz"
-                aria-label="Nome do insumo novo"
-                className="h-11 min-w-0 flex-1 rounded-xl text-base"
-              />
-              <select
-                aria-label="Unidade do estoque"
-                value={newUnit}
-                onChange={event => setNewUnit(event.target.value as StockUnit)}
-                className="h-11 rounded-xl border border-[#e5e0d7] bg-white px-2 text-base"
-              >
-                {STOCK_UNITS.map(unit => (
-                  <option key={unit}>{unit}</option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                variant="outline"
-                aria-label="Criar insumo"
-                onClick={createIngredient}
-                disabled={newName.trim().length < 2 || createItem.isPending}
-                className="h-11 w-11 rounded-xl p-0"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="mt-1 text-xs text-[#776e63]">
-              Ele entra no estoque com saldo zero. Informe saldo e custo na aba
-              Estoque.
-            </p>
-          </div>
-
           <Button
             onClick={save}
             disabled={saveMutation.isPending}
             className="h-11 w-full rounded-xl bg-[#2f5d50] text-white"
           >
-            Salvar ficha técnica
+            Salvar receita
           </Button>
         </div>
       </DialogContent>

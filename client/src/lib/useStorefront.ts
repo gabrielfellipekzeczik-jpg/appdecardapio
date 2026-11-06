@@ -183,6 +183,7 @@ export function useStorefront(slug: string) {
   const createOrderMutation = trpc.orders.create.useMutation();
   const createPaymentMutation = trpc.payments.create.useMutation();
   const cancelPendingMutation = trpc.payments.cancelPending.useMutation();
+  const syncPendingMutation = trpc.payments.syncPending.useMutation();
   const deliveryQuoteMutation = trpc.payments.deliveryQuote.useMutation();
   const [deliveryQuote, setDeliveryQuote] = useState<{
     fee: number;
@@ -266,6 +267,18 @@ export function useStorefront(slug: string) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderDetailsQuery.data]);
+  const pendingOrderId = pendingPayment?.orderId;
+  useEffect(() => {
+    if (!pendingOrderId) return;
+    const timer = window.setInterval(() => {
+      syncPendingMutation.mutate(
+        { companySlug: slug, orderId: pendingOrderId },
+        { onError: () => undefined }
+      );
+    }, 15_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, pendingOrderId]);
   useEffect(() => {
     const order = paymentOrderQuery.data?.order;
     if (!pendingPayment || order?.id !== pendingPayment.orderId) return;

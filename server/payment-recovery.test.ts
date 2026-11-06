@@ -371,3 +371,47 @@ describe("regras da loja", () => {
     });
   });
 });
+
+describe("fila da cozinha", () => {
+  beforeEach(() => vi.clearAllMocks());
+  const admin = () =>
+    appRouter.createCaller({
+      user: { id: 1, email: "dono@teste.com", role: "admin", companyId: -1 },
+      req: { protocol: "https", headers: {} },
+      res: {},
+    } as unknown as TrpcContext);
+  const queue = async () =>
+    (await admin().orders.recent({ limit: 100 })).map(({ order }) => order.id);
+
+  it("só mostra pedido online depois de pago", async () => {
+    const orderId = await orderWithPendingPix();
+    expect(await queue()).not.toContain(orderId);
+    await expect(
+      admin().orders.advanceStatus({ id: orderId, status: "preparing" })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    mp.getPayment.mockResolvedValueOnce({ status: "approved" });
+    await expect(
+      caller().payments.syncPending({ companySlug: "loja-teste", orderId })
+    ).resolves.toEqual({ paymentStatus: "approved" });
+    expect(await queue()).toContain(orderId);
+  });
+
+  it("mantém o pedido pendente enquanto o Pix não é pago", async () => {
+    const orderId = await orderWithPendingPix();
+    mp.getPayment.mockResolvedValueOnce({ status: "pending" });
+    await expect(
+      caller().payments.syncPending({ companySlug: "loja-teste", orderId })
+    ).resolves.toEqual({ paymentStatus: "pending" });
+    expect(await queue()).not.toContain(orderId);
+  });
+
+  it("pedido pago na entrega vai direto para a fila", async () => {
+    const created = await caller().orders.create({
+      ...guestOrder,
+      companySlug: "loja-completa",
+      paymentMethod: "cash_on_delivery",
+    });
+    expect(await queue()).toContain(created.orderId);
+  });
+});

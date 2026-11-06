@@ -36,6 +36,7 @@ import {
   advanceOrderStatus,
   createCustomerOrder,
   createInventoryItem,
+  updateInventoryItem,
   recordInventoryMovement,
   listInventoryMovements,
   createExpense,
@@ -794,6 +795,11 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const before = await getOrderById(ctx.companyId, input.id);
+        if (before && !isReadyForKitchen(before.order))
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Este pedido ainda não foi pago.",
+          });
         if (input.status === "delivered") {
           const current = before;
           if (current?.order.driverTrackingTokenHash)
@@ -814,7 +820,6 @@ export const appRouter = router({
           result.persisted &&
           event &&
           before &&
-          isReadyForKitchen(before.order) &&
           isForwardMove(before.order.status, input.status)
         )
           await notifyOrderEvent(input.id, event);
@@ -1103,6 +1108,24 @@ export const appRouter = router({
         })
       )
       .mutation(({ ctx, input }) => createInventoryItem(ctx.companyId, input)),
+    updateItem: companyAdminProcedure
+      .input(
+        z.object({
+          itemId: z.number().int().positive(),
+          costPerUnit: z.number().min(0).max(100_000_000).optional(),
+          minimumQuantity: z.number().min(0).max(1_000_000_000).optional(),
+          active: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateInventoryItem(ctx.companyId, input);
+        if (!updated)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Item de estoque não encontrado.",
+          });
+        return { updated: true };
+      }),
     recordMovement: companyAdminProcedure
       .input(
         z.object({
@@ -1399,6 +1422,48 @@ export const appRouter = router({
         if (paymentStatus === "approved")
           await notifyOrderEvent(input.orderId, "paid");
         return payment;
+      }),
+    // Segunda via do webhook: a cozinha só vê pedido pago, então um aviso perdido
+    // do Mercado Pago não pode deixar um pedido pago de fora.
+    syncPending: publicProcedure
+      .input(
+        z.object({
+          companySlug: z.string(),
+          orderId: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const company = await requireCompanyBySlug(input.companySlug);
+        const found = await getCustomerOrderById(
+          company.id,
+          input.orderId,
+          requireCustomerAccessToken(ctx.req)
+        );
+        if (!found)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Pedido não encontrado",
+          });
+        const paymentId = found.order.externalPaymentId;
+        if (found.order.paymentStatus !== "pending" || !paymentId)
+          return { paymentStatus: found.order.paymentStatus };
+        const current = await getPayment(company.id, paymentId);
+        if (current.status === "approved") {
+          await setOrderPayment(input.orderId, {
+            paymentStatus: "approved",
+            externalPaymentId: paymentId,
+          });
+          await notifyOrderEvent(input.orderId, "paid");
+          return { paymentStatus: "approved" };
+        }
+        if (current.status === "rejected" || current.status === "cancelled") {
+          await setOrderPayment(input.orderId, {
+            paymentStatus: "rejected",
+            externalPaymentId: paymentId,
+          });
+          return { paymentStatus: "rejected" };
+        }
+        return { paymentStatus: "pending" };
       }),
     // Libera o pedido para outra forma de pagamento. Consulta o Mercado Pago
     // antes e depois de cancelar para nunca descartar um Pix que acabou de ser pago.

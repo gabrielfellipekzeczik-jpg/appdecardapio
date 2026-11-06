@@ -135,6 +135,25 @@ describe("fichas técnicas", () => {
     });
   });
 
+  it("atualiza preço e tira o ingrediente do estoque", async () => {
+    const caller = adminCaller();
+    const item = await caller.inventory.createItem({
+      name: "Sal",
+      unit: "kg",
+      minimumQuantity: 0,
+      costPerUnit: 0,
+    });
+    await caller.inventory.updateItem({ itemId: item.id, costPerUnit: 3 });
+    const listed = (await caller.inventory.list()) as { id: number; costPerUnit: string }[];
+    expect(listed.find(entry => entry.id === item.id)?.costPerUnit).toBe("3.00");
+    await caller.inventory.updateItem({ itemId: item.id, active: false });
+    const after = (await caller.inventory.list()) as { id: number }[];
+    expect(after.map(entry => entry.id)).not.toContain(item.id);
+    await expect(
+      caller.inventory.updateItem({ itemId: 99999, costPerUnit: 1 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("recusa insumo de fora do estoque", async () => {
     const caller = adminCaller();
     await expect(

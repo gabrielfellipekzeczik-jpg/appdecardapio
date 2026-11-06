@@ -1,77 +1,440 @@
 import { useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Boxes, CircleAlert, ClipboardPlus, PackagePlus, SlidersHorizontal } from "lucide-react";
+import { CircleAlert, History, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ProductionPlanner } from "@/components/ProductionPlanner";
 import { trpc } from "@/lib/trpc";
-import { toast } from "sonner";
+import { compatibleUnits, convertQuantity } from "@shared/production-plan";
 
-type MovementType = "in" | "out" | "adjustment";
-const STOCK_UNITS = ["un", "kg", "g", "L", "ml", "cx", "pct"] as const;
+const STOCK_UNITS = ["kg", "g", "L", "ml", "un", "cx", "pct"] as const;
 type StockUnit = (typeof STOCK_UNITS)[number];
-type StockItem = { id: number; name: string; unit: string; currentQuantity: number | string; minimumQuantity: number | string; costPerUnit: number | string };
-const quantity = (value: number | string | null | undefined) => Number(value ?? 0) || 0;
-const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-const movementName: Record<MovementType, string> = { in: "Entrada", out: "Saída", adjustment: "Ajuste de saldo" };
+type StockItem = {
+  id: number;
+  name: string;
+  unit: string;
+  currentQuantity: number | string;
+  minimumQuantity: number | string;
+  costPerUnit: number | string;
+};
 
-export function InventoryManager() {
-  const itemsQuery = trpc.inventory.list.useQuery(undefined, { refetchInterval: 60_000 });
-  const movementsQuery = trpc.inventory.movements.useQuery({ limit: 100 }, { refetchInterval: 60_000 });
-  const createItem = trpc.inventory.createItem.useMutation();
-  const recordMovement = trpc.inventory.recordMovement.useMutation();
-  const [itemOpen, setItemOpen] = useState(false);
-  const [movementOpen, setMovementOpen] = useState(false);
-  const [movementType, setMovementType] = useState<MovementType>("in");
-  const [selectedItem, setSelectedItem] = useState("");
-  const [stockValue, setStockValue] = useState("");
-  const [reason, setReason] = useState("");
-  const [itemDraft, setItemDraft] = useState<{ name: string; unit: StockUnit; minimumQuantity: string; costPerUnit: string; initialQuantity: string }>({ name: "", unit: "un", minimumQuantity: "0", costPerUnit: "0", initialQuantity: "0" });
+const toNumber = (value: number | string | null | undefined) =>
+  Number(value ?? 0) || 0;
+const parseNumber = (value: string) => Number(value.replace(",", "."));
+const money = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+    value
+  );
+const amount = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value);
+const sameName = (first: string, second: string) =>
+  first.trim().toLocaleLowerCase("pt-BR") ===
+  second.trim().toLocaleLowerCase("pt-BR");
+
+/** Estoque e produção na mesma tela: o que tenho, o que vou fazer e o que falta comprar. */
+export function InventoryManager({ slug }: { slug: string }) {
+  const itemsQuery = trpc.inventory.list.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
   const items = (itemsQuery.data ?? []) as StockItem[];
-  const movements = movementsQuery.data ?? [];
-  const lowStock = useMemo(() => items.filter((item) => quantity(item.currentQuantity) <= quantity(item.minimumQuantity)), [items]);
-  const inventoryValue = items.reduce((sum, item) => sum + quantity(item.currentQuantity) * quantity(item.costPerUnit), 0);
-  const refresh = async () => { await Promise.all([itemsQuery.refetch(), movementsQuery.refetch()]); };
-  const openMovement = (type: MovementType) => { setMovementType(type); setSelectedItem(items[0] ? String(items[0].id) : ""); setStockValue(""); setReason(""); setMovementOpen(true); };
+  const [editing, setEditing] = useState<StockItem | null>(null);
 
-  const submitItem = async () => {
-    const initialQuantity = Number(itemDraft.initialQuantity.replace(",", "."));
-    const min = Number(itemDraft.minimumQuantity.replace(",", "."));
-    const cost = Number(itemDraft.costPerUnit.replace(",", "."));
-    if (itemDraft.name.trim().length < 2 || !itemDraft.unit || !Number.isFinite(min) || min < 0 || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(initialQuantity) || initialQuantity < 0) { toast.error("Revise nome, unidade, saldo e valores informados."); return; }
-    try {
-      const item = await createItem.mutateAsync({ name: itemDraft.name.trim(), unit: itemDraft.unit, minimumQuantity: min, costPerUnit: cost });
-      if (initialQuantity > 0) {
-        try { await recordMovement.mutateAsync({ itemId: item.id, type: "in", quantity: initialQuantity, reason: "Saldo inicial" }); }
-        catch (error) { await refresh(); toast.error(`Item criado com saldo zero, mas o saldo inicial não foi lançado: ${error instanceof Error ? error.message : "erro inesperado"}`); setItemOpen(false); return; }
-      }
-      toast.success("Item de estoque cadastrado."); setItemOpen(false); setItemDraft({ name: "", unit: "un", minimumQuantity: "0", costPerUnit: "0", initialQuantity: "0" }); await refresh();
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível cadastrar o item."); }
-  };
+  return (
+    <div className="space-y-5">
+      <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
+        <CardHeader>
+          <CardTitle className="font-display text-lg">
+            1. O que eu tenho
+          </CardTitle>
+          <p className="text-sm text-[#776e63]">
+            Comprou ou contou algo? Escreva aqui. Se o ingrediente já existir, a
+            quantidade é somada.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <AddStockForm items={items} />
+          {itemsQuery.isLoading ? (
+            <div className="h-24 animate-pulse rounded-xl bg-[#edf0eb]" />
+          ) : items.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-[#e5e0d7] p-5 text-center text-sm text-[#776e63]">
+              Seu estoque está vazio. Comece por algo como 5 kg de arroz.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[#eeeae3]">
+              {items.map(item => {
+                const quantity = toNumber(item.currentQuantity);
+                const minimum = toNumber(item.minimumQuantity);
+                const cost = toNumber(item.costPerUnit);
+                const low = minimum > 0 && quantity <= minimum;
+                return (
+                  <li key={item.id} className="flex items-center gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{item.name}</p>
+                      <p className="text-xs text-[#776e63]">
+                        {cost > 0
+                          ? `${money(cost)} por ${item.unit}`
+                          : "Sem preço informado"}
+                      </p>
+                      {low && (
+                        <p className="flex items-center gap-1 text-xs font-semibold text-[#a05c32]">
+                          <CircleAlert className="h-3 w-3" /> Está acabando
+                        </p>
+                      )}
+                    </div>
+                    <p className="shrink-0 text-right font-display text-lg font-bold">
+                      {amount(quantity)} {item.unit}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label={`Editar ${item.name}`}
+                      onClick={() => setEditing(item)}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#776e63] hover:bg-[#f1ece3]"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <MovementHistory />
+        </CardContent>
+      </Card>
 
-  const submitMovement = async () => {
-    const value = Number(stockValue.replace(",", "."));
-    if (!selectedItem || !Number.isFinite(value) || value < 0 || (movementType !== "adjustment" && value <= 0) || !reason.trim()) { toast.error(movementType === "adjustment" ? "Informe o saldo final e o motivo do ajuste." : "Informe quantidade positiva e motivo da movimentação."); return; }
-    try {
-      await recordMovement.mutateAsync({ itemId: Number(selectedItem), type: movementType, quantity: value, reason: reason.trim() });
-      toast.success(movementType === "adjustment" ? "Saldo ajustado." : `${movementName[movementType]} registrada.`); setMovementOpen(false); await refresh();
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível registrar a movimentação."); }
-  };
+      <ProductionPlanner slug={slug} />
 
-  return <div className="space-y-6">
-    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#829083]">Controle de estoque</p><h2 className="mt-1 font-display text-2xl font-bold text-[#28322a]">Insumos e movimentações</h2><p className="mt-1 text-sm text-[#778078]">Registre o saldo físico e acompanhe cada entrada, saída ou ajuste.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => openMovement("in")} disabled={!items.length} className="h-10 rounded-xl border-[#d9e5db] text-[#38654b]"><ArrowDownLeft className="mr-2 h-4 w-4"/>Registrar entrada</Button><Button variant="outline" onClick={() => openMovement("out")} disabled={!items.length} className="h-10 rounded-xl border-[#eadbd1] text-[#a05c32]"><ArrowUpRight className="mr-2 h-4 w-4"/>Lançar saída</Button><Button variant="outline" onClick={() => openMovement("adjustment")} disabled={!items.length} className="h-10 rounded-xl border-[#dfe2e8] text-[#52627c]"><SlidersHorizontal className="mr-2 h-4 w-4"/>Ajustar saldo</Button><Button onClick={() => { setItemDraft({ name: "", unit: "un", minimumQuantity: "0", costPerUnit: "0", initialQuantity: "0" }); setItemOpen(true); }} className="h-10 rounded-xl bg-[#2f5d50] text-white"><PackagePlus className="mr-2 h-4 w-4"/>Novo item</Button></div></div>
-
-    <div className="grid gap-4 sm:grid-cols-3"><Stat title="Itens cadastrados" value={String(items.length)} detail="Matérias-primas e insumos"/><Stat title="Abaixo do mínimo" value={String(lowStock.length)} detail={lowStock.length ? "Precisam de reposição" : "Estoque dentro dos níveis"} warning={lowStock.length > 0}/><Stat title="Valor estimado em estoque" value={money(inventoryValue)} detail="Saldo atual × custo unitário"/></div>
-    {lowStock.length > 0 && <Card className="rounded-2xl border-[#f0ddc5] bg-[#fffaf3]"><CardContent className="flex items-start gap-3 p-4"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#a05c32]"/><div><p className="font-semibold text-[#7e4c2d]">Reposição necessária</p><p className="mt-1 text-sm text-[#8d6b53]">{lowStock.map((item) => `${item.name} (${quantity(item.currentQuantity)} ${item.unit})`).join(" · ")}</p></div></CardContent></Card>}
-
-    <Card className="rounded-2xl border-[#e7ebe5] shadow-sm"><CardHeader><CardTitle className="font-display text-lg">Saldo por item</CardTitle></CardHeader><CardContent>{itemsQuery.isLoading ? <div className="h-32 animate-pulse rounded-xl bg-[#edf0eb]"/> : items.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead><tr className="border-b border-[#edf0eb] text-xs uppercase tracking-wide text-[#899188]"><th className="pb-3 pr-4 font-semibold">Insumo</th><th className="pb-3 pr-4 font-semibold">Saldo atual</th><th className="pb-3 pr-4 font-semibold">Mínimo</th><th className="pb-3 pr-4 font-semibold">Custo / unidade</th><th className="pb-3 text-right font-semibold">Ação</th></tr></thead><tbody>{items.map((item) => { const low = quantity(item.currentQuantity) <= quantity(item.minimumQuantity); return <tr key={item.id} className="border-b border-[#f1f3ef] last:border-0"><td className="py-3 pr-4 font-semibold text-[#39443b]">{item.name}</td><td className="py-3 pr-4"><span className={`font-semibold ${low ? "text-[#a05c32]" : "text-[#2f5d50]"}`}>{quantity(item.currentQuantity)} {item.unit}</span></td><td className="py-3 pr-4 text-[#657066]">{quantity(item.minimumQuantity)} {item.unit}</td><td className="py-3 pr-4 text-[#657066]">{money(quantity(item.costPerUnit))}</td><td className="py-3 text-right"><Button size="sm" variant="outline" onClick={() => { setSelectedItem(String(item.id)); openMovement("adjustment"); setSelectedItem(String(item.id)); }} className="rounded-lg">Movimentar</Button></td></tr>; })}</tbody></table></div> : <div className="rounded-2xl border border-dashed border-[#dfe5dd] p-9 text-center"><Boxes className="mx-auto h-9 w-9 text-[#9aa69a]"/><p className="mt-3 font-semibold text-[#4d594e]">Seu estoque ainda está vazio</p><p className="mt-1 text-sm text-[#818a81]">Cadastre um insumo para começar a registrar entradas, saídas e ajustes.</p><Button onClick={() => setItemOpen(true)} className="mt-4 rounded-xl bg-[#2f5d50]">Cadastrar primeiro item</Button></div>}</CardContent></Card>
-
-    <Card className="rounded-2xl border-[#e7ebe5] shadow-sm"><CardHeader><CardTitle className="font-display text-lg">Histórico de movimentações</CardTitle><p className="text-xs text-[#879087]">Últimas 100 operações registradas</p></CardHeader><CardContent>{movementsQuery.isLoading ? <div className="h-24 animate-pulse rounded-xl bg-[#edf0eb]"/> : movements.length ? <div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><thead><tr className="border-b border-[#edf0eb] text-xs uppercase tracking-wide text-[#899188]"><th className="pb-3 pr-4 font-semibold">Data</th><th className="pb-3 pr-4 font-semibold">Insumo</th><th className="pb-3 pr-4 font-semibold">Tipo</th><th className="pb-3 pr-4 font-semibold">Quantidade</th><th className="pb-3 font-semibold">Motivo</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id} className="border-b border-[#f1f3ef] last:border-0"><td className="py-3 pr-4 text-[#657066]">{new Date(movement.occurredAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</td><td className="py-3 pr-4 font-medium">{movement.itemName}</td><td className="py-3 pr-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${movement.type === "in" ? "bg-[#edf5ee] text-[#347052]" : movement.type === "out" ? "bg-[#fbefed] text-[#a34e43]" : "bg-[#eef2f7] text-[#52627c]"}`}>{movementName[movement.type as MovementType] ?? movement.type}</span></td><td className="py-3 pr-4 font-semibold">{movement.type === "adjustment" ? `para ${quantity(movement.quantity)} ${movement.unit}` : `${movement.type === "in" ? "+" : "−"}${quantity(movement.quantity)} ${movement.unit}`}</td><td className="py-3 text-[#657066]">{movement.reason}</td></tr>)}</tbody></table></div> : <div className="flex items-center gap-3 rounded-xl border border-dashed border-[#e2e7e0] p-5 text-sm text-[#818a81]"><ClipboardPlus className="h-5 w-5 text-[#849486]"/>Nenhuma movimentação registrada.</div>}</CardContent></Card>
-
-    <Dialog open={itemOpen} onOpenChange={setItemOpen}><DialogContent className="max-h-[90dvh] overflow-y-auto rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle className="font-display text-xl">Cadastrar item de estoque</DialogTitle><DialogDescription>Informe os dados do insumo. O saldo inicial, se informado, será registrado como uma entrada.</DialogDescription></DialogHeader><div className="space-y-4 pt-2"><label className="block text-sm font-semibold text-[#465147]">Nome do item<Input value={itemDraft.name} onChange={(event) => setItemDraft({ ...itemDraft, name: event.target.value })} placeholder="Ex.: arroz tipo 1" className="mt-1.5 rounded-xl" maxLength={120}/></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#465147]">Unidade<select value={itemDraft.unit} onChange={(event) => setItemDraft({ ...itemDraft, unit: event.target.value as StockUnit })} className="mt-1.5 h-10 w-full rounded-xl border border-[#e1e7e0] bg-white px-3 text-sm">{STOCK_UNITS.map((unit) => <option key={unit}>{unit}</option>)}</select></label><label className="block text-sm font-semibold text-[#465147]">Saldo inicial<Input value={itemDraft.initialQuantity} onChange={(event) => setItemDraft({ ...itemDraft, initialQuantity: event.target.value.replace(/[^\d.,]/g, "") })} inputMode="decimal" placeholder="0" className="mt-1.5 rounded-xl"/></label></div><div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#465147]">Estoque mínimo<Input value={itemDraft.minimumQuantity} onChange={(event) => setItemDraft({ ...itemDraft, minimumQuantity: event.target.value.replace(/[^\d.,]/g, "") })} inputMode="decimal" placeholder="0" className="mt-1.5 rounded-xl"/></label><label className="block text-sm font-semibold text-[#465147]">Custo unitário (R$)<Input value={itemDraft.costPerUnit} onChange={(event) => setItemDraft({ ...itemDraft, costPerUnit: event.target.value.replace(/[^\d.,]/g, "") })} inputMode="decimal" placeholder="0,00" className="mt-1.5 rounded-xl"/></label></div><div className="flex justify-end gap-2 pt-2"><Button variant="outline" onClick={() => setItemOpen(false)} className="rounded-xl">Cancelar</Button><Button onClick={submitItem} disabled={createItem.isPending || recordMovement.isPending} className="rounded-xl bg-[#2f5d50] text-white">{createItem.isPending || recordMovement.isPending ? "Salvando…" : "Cadastrar item"}</Button></div></div></DialogContent></Dialog>
-
-    <Dialog open={movementOpen} onOpenChange={setMovementOpen}><DialogContent className="max-h-[90dvh] overflow-y-auto rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle className="font-display text-xl">{movementName[movementType]}</DialogTitle><DialogDescription>{movementType === "adjustment" ? "O valor informado será o saldo final contado no estoque." : movementType === "in" ? "Registre a quantidade que entrou no estoque." : "Registre uma saída; o saldo não poderá ficar negativo."}</DialogDescription></DialogHeader>{items.length === 0 ? <div className="space-y-4"><p className="rounded-xl bg-[#fbf4ea] p-4 text-sm text-[#8c603d]">Cadastre um item antes de lançar uma movimentação.</p><Button onClick={() => { setMovementOpen(false); setItemOpen(true); }} className="rounded-xl bg-[#2f5d50]">Cadastrar item</Button></div> : <div className="space-y-4 pt-2"><label className="block text-sm font-semibold text-[#465147]">Item<select value={selectedItem} onChange={(event) => setSelectedItem(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-[#e1e7e0] bg-white px-3 text-sm">{items.map((item) => <option key={item.id} value={item.id}>{item.name} · saldo {quantity(item.currentQuantity)} {item.unit}</option>)}</select></label><label className="block text-sm font-semibold text-[#465147]">{movementType === "adjustment" ? "Saldo final contado" : `Quantidade (${items.find((item) => String(item.id) === selectedItem)?.unit ?? "un"})`}<Input value={stockValue} onChange={(event) => setStockValue(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" min={movementType === "adjustment" ? "0" : "0.001"} placeholder={movementType === "adjustment" ? "Ex.: 12" : "Ex.: 2,5"} className="mt-1.5 rounded-xl"/></label><label className="block text-sm font-semibold text-[#465147]">Motivo<Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={movementType === "in" ? "Ex.: compra de fornecedor" : movementType === "out" ? "Ex.: uso na produção" : "Ex.: conferência física"} className="mt-1.5 rounded-xl" maxLength={200}/></label><div className="flex justify-end gap-2 pt-2"><Button variant="outline" onClick={() => setMovementOpen(false)} className="rounded-xl">Cancelar</Button><Button onClick={submitMovement} disabled={recordMovement.isPending} className="rounded-xl bg-[#2f5d50] text-white">{recordMovement.isPending ? "Salvando…" : "Registrar movimentação"}</Button></div></div>}</DialogContent></Dialog>
-  </div>;
+      {editing && (
+        <EditItemDialog item={editing} onClose={() => setEditing(null)} />
+      )}
+    </div>
+  );
 }
 
-function Stat({ title, value, detail, warning = false }: { title: string; value: string; detail: string; warning?: boolean }) { return <Card className="rounded-2xl border-[#e7ebe5] shadow-sm"><CardContent className="p-5"><p className="text-sm text-[#778078]">{title}</p><p className={`mt-2 font-display text-2xl font-bold ${warning ? "text-[#a05c32]" : "text-[#2f5d50]"}`}>{value}</p><p className="mt-1 text-xs text-[#8b948b]">{detail}</p></CardContent></Card>; }
+function AddStockForm({ items }: { items: StockItem[] }) {
+  const utils = trpc.useUtils();
+  const createItem = trpc.inventory.createItem.useMutation();
+  const recordMovement = trpc.inventory.recordMovement.useMutation();
+  const updateItem = trpc.inventory.updateItem.useMutation();
+  const [name, setName] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState<string>("kg");
+  const [paid, setPaid] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const existing = useMemo(
+    () => items.find(item => sameName(item.name, name)),
+    [items, name]
+  );
+  const unitOptions: readonly string[] = existing
+    ? compatibleUnits(existing.unit)
+    : STOCK_UNITS;
+  const selectedUnit = unitOptions.includes(unit)
+    ? unit
+    : (existing?.unit ?? unit);
+  const value = parseNumber(quantity);
+  const canSubmit = name.trim().length >= 2 && value > 0 && !busy;
+
+  const submit = async () => {
+    const paidValue = paid.trim() ? parseNumber(paid) : 0;
+    if (!Number.isFinite(paidValue) || paidValue < 0) {
+      toast.error("Confira o valor pago.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const item =
+        existing ??
+        (await createItem.mutateAsync({
+          name: name.trim(),
+          unit: selectedUnit as StockUnit,
+          minimumQuantity: 0,
+          costPerUnit: 0,
+        }));
+      const stockQuantity = convertQuantity(value, selectedUnit, item.unit);
+      await recordMovement.mutateAsync({
+        itemId: item.id,
+        type: "in",
+        quantity: stockQuantity,
+        reason: "Entrada no estoque",
+      });
+      if (paidValue > 0)
+        await updateItem.mutateAsync({
+          itemId: item.id,
+          costPerUnit: Math.round((paidValue / stockQuantity) * 100) / 100,
+        });
+      toast.success(`${amount(value)} ${selectedUnit} de ${item.name} no estoque.`);
+      setName("");
+      setQuantity("");
+      setPaid("");
+      await Promise.all([
+        utils.inventory.list.invalidate(),
+        utils.inventory.movements.invalidate(),
+      ]);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível salvar."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={event => {
+        event.preventDefault();
+        if (canSubmit) void submit();
+      }}
+      className="grid grid-cols-2 gap-2 rounded-xl bg-[#f8f6f1] p-3 sm:grid-cols-[minmax(0,1.6fr)_90px_90px_minmax(0,1fr)_auto] sm:items-end"
+    >
+      <label className="col-span-2 text-xs font-semibold sm:col-span-1">
+        Ingrediente
+        <Input
+          value={name}
+          onChange={event => setName(event.target.value)}
+          list="stock-item-names"
+          placeholder="Ex.: Arroz"
+          className="mt-1 h-11 rounded-xl bg-white text-base"
+        />
+        <datalist id="stock-item-names">
+          {items.map(item => (
+            <option key={item.id} value={item.name} />
+          ))}
+        </datalist>
+      </label>
+      <label className="text-xs font-semibold">
+        Quantidade
+        <Input
+          value={quantity}
+          onChange={event => setQuantity(event.target.value)}
+          inputMode="decimal"
+          placeholder="5"
+          className="mt-1 h-11 rounded-xl bg-white text-base"
+        />
+      </label>
+      <label className="text-xs font-semibold">
+        Unidade
+        <select
+          value={selectedUnit}
+          onChange={event => setUnit(event.target.value)}
+          className="mt-1 h-11 w-full rounded-xl border border-[#e5e0d7] bg-white px-2 text-base"
+        >
+          {unitOptions.map(option => (
+            <option key={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+      <label className="col-span-2 text-xs font-semibold sm:col-span-1">
+        Quanto pagou no total (opcional)
+        <Input
+          value={paid}
+          onChange={event => setPaid(event.target.value)}
+          inputMode="decimal"
+          placeholder="R$ 30,00"
+          className="mt-1 h-11 rounded-xl bg-white text-base"
+        />
+      </label>
+      <Button
+        type="submit"
+        disabled={!canSubmit}
+        className="col-span-2 h-11 rounded-xl bg-[#2f5d50] text-white sm:col-span-1"
+      >
+        <Plus className="mr-1.5 h-4 w-4" />
+        {busy ? "Salvando…" : "Adicionar"}
+      </Button>
+    </form>
+  );
+}
+
+function EditItemDialog({
+  item,
+  onClose,
+}: {
+  item: StockItem;
+  onClose: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const recordMovement = trpc.inventory.recordMovement.useMutation();
+  const updateItem = trpc.inventory.updateItem.useMutation();
+  const text = (value: number) => String(value).replace(".", ",");
+  const [quantity, setQuantity] = useState(text(toNumber(item.currentQuantity)));
+  const [cost, setCost] = useState(text(toNumber(item.costPerUnit)));
+  const [minimum, setMinimum] = useState(text(toNumber(item.minimumQuantity)));
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () =>
+    Promise.all([
+      utils.inventory.list.invalidate(),
+      utils.inventory.movements.invalidate(),
+    ]);
+
+  const save = async () => {
+    const nextQuantity = parseNumber(quantity);
+    const nextCost = parseNumber(cost);
+    const nextMinimum = parseNumber(minimum);
+    if (![nextQuantity, nextCost, nextMinimum].every(v => v >= 0)) {
+      toast.error("Use apenas números iguais ou maiores que zero.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (nextQuantity !== toNumber(item.currentQuantity))
+        await recordMovement.mutateAsync({
+          itemId: item.id,
+          type: "adjustment",
+          quantity: nextQuantity,
+          reason: "Correção manual",
+        });
+      await updateItem.mutateAsync({
+        itemId: item.id,
+        costPerUnit: nextCost,
+        minimumQuantity: nextMinimum,
+      });
+      await refresh();
+      toast.success("Ingrediente atualizado.");
+      onClose();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível salvar."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await updateItem.mutateAsync({ itemId: item.id, active: false });
+      await refresh();
+      toast.success(`${item.name} saiu do estoque.`);
+      onClose();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível remover."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent className="rounded-3xl sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl">{item.name}</DialogTitle>
+          <DialogDescription>
+            Corrija o que está errado. Para somar uma compra, use o campo do
+            passo 1.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <label className="block text-sm font-semibold">
+            Quanto tem agora ({item.unit})
+            <Input
+              value={quantity}
+              onChange={event => setQuantity(event.target.value)}
+              inputMode="decimal"
+              className="mt-1 h-11 rounded-xl text-base"
+            />
+          </label>
+          <label className="block text-sm font-semibold">
+            Preço por {item.unit} (R$)
+            <Input
+              value={cost}
+              onChange={event => setCost(event.target.value)}
+              inputMode="decimal"
+              className="mt-1 h-11 rounded-xl text-base"
+            />
+          </label>
+          <label className="block text-sm font-semibold">
+            Avisar quando tiver menos de ({item.unit})
+            <Input
+              value={minimum}
+              onChange={event => setMinimum(event.target.value)}
+              inputMode="decimal"
+              className="mt-1 h-11 rounded-xl text-base"
+            />
+          </label>
+          <Button
+            onClick={save}
+            disabled={busy}
+            className="h-11 w-full rounded-xl bg-[#2f5d50] text-white"
+          >
+            Salvar
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={remove}
+            disabled={busy}
+            className="h-11 w-full rounded-xl text-[#a05c32]"
+          >
+            Remover do estoque
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MovementHistory() {
+  const [open, setOpen] = useState(false);
+  const movements = trpc.inventory.movements.useQuery(
+    { limit: 30 },
+    { enabled: open }
+  );
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(value => !value)}
+        className="flex h-11 items-center gap-1.5 text-sm font-semibold text-[#526d58]"
+      >
+        <History className="h-4 w-4" />
+        {open ? "Esconder histórico" : "Ver histórico"}
+      </button>
+      {open && (
+        <ul className="divide-y divide-[#eeeae3] text-sm">
+          {(movements.data ?? []).length === 0 && (
+            <li className="py-2 text-[#776e63]">Nada registrado ainda.</li>
+          )}
+          {(movements.data ?? []).map(movement => {
+            const entry = movement as Record<string, unknown>;
+            const label =
+              entry.type === "in"
+                ? "Entrou"
+                : entry.type === "out"
+                  ? "Saiu"
+                  : "Corrigido para";
+            return (
+              <li key={String(entry.id)} className="py-2">
+                <span className="font-semibold">{String(entry.itemName)}</span>
+                {" · "}
+                {label} {amount(toNumber(entry.quantity as string))}{" "}
+                {String(entry.unit)}
+                <span className="block text-xs text-[#776e63]">
+                  {new Date(String(entry.occurredAt)).toLocaleString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  · {String(entry.reason)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}

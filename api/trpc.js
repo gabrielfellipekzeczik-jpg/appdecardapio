@@ -182,6 +182,16 @@ var init_finance = __esm({
   }
 });
 
+// shared/payment-messages.ts
+function isReadyForKitchen(order) {
+  return order.paymentMethod !== "mercadopago" || order.paymentStatus === "approved";
+}
+var init_payment_messages = __esm({
+  "shared/payment-messages.ts"() {
+    "use strict";
+  }
+});
+
 // shared/store-rules.ts
 function isPickupOrder(order) {
   return order.deliveryAddress === PICKUP_ADDRESS;
@@ -380,6 +390,16 @@ function testCreateInventoryItem(input) {
   };
   inventoryItems.push(item);
   return item;
+}
+function testUpdateInventoryItem(input) {
+  const item = inventoryItems.find((entry) => entry.id === input.itemId);
+  if (!item) return false;
+  if (input.costPerUnit !== void 0)
+    item.costPerUnit = input.costPerUnit.toFixed(2);
+  if (input.minimumQuantity !== void 0)
+    item.minimumQuantity = input.minimumQuantity.toFixed(3);
+  if (input.active !== void 0) item.active = input.active;
+  return true;
 }
 function testRecordInventoryMovement(input) {
   const item = inventoryItems.find(
@@ -900,6 +920,7 @@ __export(db_exports, {
   setOrderDelivery: () => setOrderDelivery,
   setOrderPayment: () => setOrderPayment,
   updateDriverLocation: () => updateDriverLocation,
+  updateInventoryItem: () => updateInventoryItem,
   updateMenuItem: () => updateMenuItem,
   updateWhatsappSettings: () => updateWhatsappSettings,
   upsertUser: () => upsertUser
@@ -986,9 +1007,12 @@ async function loadCustomersFor(db, companyId, orders2) {
   return data ?? [];
 }
 async function listRecentOrders(companyId, limit = 20) {
-  if (isTestMode()) return testListRecentOrders(limit);
+  if (isTestMode())
+    return testListRecentOrders(1e3).filter(({ order }) => isReadyForKitchen(order)).slice(0, limit);
   const db = getDb();
-  const { data, error } = await db.from("orders").select("*").eq("companyId", companyId).order("createdAt", { ascending: false }).limit(limit);
+  const { data, error } = await db.from("orders").select("*").eq("companyId", companyId).or(
+    "paymentMethod.is.null,paymentMethod.neq.mercadopago,paymentStatus.eq.approved"
+  ).order("createdAt", { ascending: false }).limit(limit);
   if (error) throw new Error(`[DB] Falha ao listar pedidos: ${error.message}`);
   const orders2 = data ?? [];
   return joinOrdersWithCustomers(
@@ -1478,7 +1502,7 @@ async function deleteMenuItem(companyId, id) {
 async function listInventory(companyId) {
   if (isTestMode()) return testListInventory();
   const db = getDb();
-  const { data } = await db.from("inventory_items").select("*").eq("companyId", companyId).order("name");
+  const { data } = await db.from("inventory_items").select("*").eq("companyId", companyId).eq("active", true).order("name");
   return data ?? [];
 }
 async function listRecentExpenses(companyId, limit = 50) {
@@ -1505,6 +1529,19 @@ async function createInventoryItem(companyId, input) {
       `[DB] Falha ao cadastrar item de estoque: ${error.message}`
     );
   return data;
+}
+async function updateInventoryItem(companyId, input) {
+  if (isTestMode()) return testUpdateInventoryItem(input);
+  const db = getDb();
+  const { data, error } = await db.from("inventory_items").update({
+    ...input.costPerUnit === void 0 ? {} : { costPerUnit: input.costPerUnit.toFixed(2) },
+    ...input.minimumQuantity === void 0 ? {} : { minimumQuantity: input.minimumQuantity.toFixed(3) },
+    ...input.active === void 0 ? {} : { active: input.active },
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  }).eq("id", input.itemId).eq("companyId", companyId).select("id");
+  if (error)
+    throw new Error(`[DB] Falha ao atualizar item de estoque: ${error.message}`);
+  return (data ?? []).length > 0;
 }
 async function recordInventoryMovement(companyId, input) {
   if (isTestMode()) return testRecordInventoryMovement(input);
@@ -1805,6 +1842,7 @@ var init_db = __esm({
     "use strict";
     init_checkout();
     init_finance();
+    init_payment_messages();
     init_store_rules();
     init_testData();
     init_testStore();
@@ -2067,12 +2105,8 @@ function clientIp(req) {
   return forwarded?.split(",")[0]?.trim() || "unknown";
 }
 
-// shared/payment-messages.ts
-function isReadyForKitchen(order) {
-  return order.paymentMethod !== "mercadopago" || order.paymentStatus === "approved";
-}
-
 // server/routers.ts
+init_payment_messages();
 init_store_rules();
 
 // shared/production-plan.ts
@@ -3370,6 +3404,11 @@ var appRouter = router({
       })
     ).mutation(async ({ ctx, input }) => {
       const before = await getOrderById(ctx.companyId, input.id);
+      if (before && !isReadyForKitchen(before.order))
+        throw new TRPCError2({
+          code: "BAD_REQUEST",
+          message: "Este pedido ainda n\xE3o foi pago."
+        });
       if (input.status === "delivered") {
         const current = before;
         if (current?.order.driverTrackingTokenHash)
@@ -3384,7 +3423,7 @@ var appRouter = router({
         input.status
       );
       const event = eventForStatus(input.status);
-      if (result.persisted && event && before && isReadyForKitchen(before.order) && isForwardMove(before.order.status, input.status))
+      if (result.persisted && event && before && isForwardMove(before.order.status, input.status))
         await notifyOrderEvent(input.id, event);
       if (input.status !== "ready" || !result.persisted || !isForwardMove(before?.order.status, "ready") || before && isPickupOrder(before.order))
         return { ...result, delivery: null };
@@ -3629,6 +3668,22 @@ var appRouter = router({
         costPerUnit: z2.number().min(0).max(1e8)
       })
     ).mutation(({ ctx, input }) => createInventoryItem(ctx.companyId, input)),
+    updateItem: companyAdminProcedure.input(
+      z2.object({
+        itemId: z2.number().int().positive(),
+        costPerUnit: z2.number().min(0).max(1e8).optional(),
+        minimumQuantity: z2.number().min(0).max(1e9).optional(),
+        active: z2.boolean().optional()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const updated = await updateInventoryItem(ctx.companyId, input);
+      if (!updated)
+        throw new TRPCError2({
+          code: "NOT_FOUND",
+          message: "Item de estoque n\xE3o encontrado."
+        });
+      return { updated: true };
+    }),
     recordMovement: companyAdminProcedure.input(
       z2.object({
         itemId: z2.number().int().positive(),
@@ -3871,6 +3926,46 @@ var appRouter = router({
       if (paymentStatus === "approved")
         await notifyOrderEvent(input.orderId, "paid");
       return payment;
+    }),
+    // Segunda via do webhook: a cozinha só vê pedido pago, então um aviso perdido
+    // do Mercado Pago não pode deixar um pedido pago de fora.
+    syncPending: publicProcedure.input(
+      z2.object({
+        companySlug: z2.string(),
+        orderId: z2.number().int().positive()
+      })
+    ).mutation(async ({ ctx, input }) => {
+      const company = await requireCompanyBySlug(input.companySlug);
+      const found = await getCustomerOrderById(
+        company.id,
+        input.orderId,
+        requireCustomerAccessToken(ctx.req)
+      );
+      if (!found)
+        throw new TRPCError2({
+          code: "NOT_FOUND",
+          message: "Pedido n\xE3o encontrado"
+        });
+      const paymentId = found.order.externalPaymentId;
+      if (found.order.paymentStatus !== "pending" || !paymentId)
+        return { paymentStatus: found.order.paymentStatus };
+      const current = await getPayment(company.id, paymentId);
+      if (current.status === "approved") {
+        await setOrderPayment(input.orderId, {
+          paymentStatus: "approved",
+          externalPaymentId: paymentId
+        });
+        await notifyOrderEvent(input.orderId, "paid");
+        return { paymentStatus: "approved" };
+      }
+      if (current.status === "rejected" || current.status === "cancelled") {
+        await setOrderPayment(input.orderId, {
+          paymentStatus: "rejected",
+          externalPaymentId: paymentId
+        });
+        return { paymentStatus: "rejected" };
+      }
+      return { paymentStatus: "pending" };
     }),
     // Libera o pedido para outra forma de pagamento. Consulta o Mercado Pago
     // antes e depois de cancelar para nunca descartar um Pix que acabou de ser pago.

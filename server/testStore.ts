@@ -355,6 +355,21 @@ export function testCreateInventoryItem(input: {
   inventoryItems.push(item);
   return item;
 }
+export function testUpdateInventoryItem(input: {
+  itemId: number;
+  costPerUnit?: number;
+  minimumQuantity?: number;
+  active?: boolean;
+}) {
+  const item = inventoryItems.find(entry => entry.id === input.itemId);
+  if (!item) return false;
+  if (input.costPerUnit !== undefined)
+    item.costPerUnit = input.costPerUnit.toFixed(2);
+  if (input.minimumQuantity !== undefined)
+    item.minimumQuantity = input.minimumQuantity.toFixed(3);
+  if (input.active !== undefined) item.active = input.active;
+  return true;
+}
 export function testRecordInventoryMovement(input: {
   itemId: number;
   type: "in" | "out" | "adjustment";
