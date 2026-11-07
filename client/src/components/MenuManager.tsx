@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
+import { RecipeEditor, parseRecipeDraft, toRecipeDraft, type RecipeDraftLine } from "@/components/RecipeEditor";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -31,7 +32,10 @@ export function MenuManager() {
   const company = trpc.company.mine.useQuery();
   const items = trpc.adminMenu.list.useQuery();
   const categories = trpc.adminMenu.categories.useQuery();
+  const recipes = trpc.recipes.list.useQuery(undefined, { retry: false });
+  const saveRecipe = trpc.recipes.save.useMutation();
   const [form, setForm] = useState<Form | null>(null);
+  const [recipe, setRecipe] = useState<RecipeDraftLine[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toDelete, setToDelete] = useState<{ id: number; name: string } | null>(null);
@@ -49,11 +53,14 @@ export function MenuManager() {
   const categoryName = (id: number) => categories.data?.find((c) => c.id === id)?.name ?? "Sem categoria";
   const set = (patch: Partial<Form>) => setForm((current) => (current ? { ...current, ...patch } : current));
 
-  const openNew = () => setForm({ ...emptyForm, categoryId: categories.data?.[0] ? String(categories.data[0].id) : "" });
-  const openEdit = (item: NonNullable<typeof items.data>[number]) => setForm({
-    id: item.id, name: item.name, description: item.description ?? "", price: Number(item.price).toFixed(2).replace(".", ","),
-    categoryId: String(item.categoryId), imageUrl: item.imageUrl, active: item.active, featured: item.featured,
-  });
+  const openNew = () => { setRecipe([]); setForm({ ...emptyForm, categoryId: categories.data?.[0] ? String(categories.data[0].id) : "" }); };
+  const openEdit = (item: NonNullable<typeof items.data>[number]) => {
+    setRecipe((recipes.data ?? []).filter((line) => Number(line.menuItemId) === item.id).map(toRecipeDraft));
+    setForm({
+      id: item.id, name: item.name, description: item.description ?? "", price: Number(item.price).toFixed(2).replace(".", ","),
+      categoryId: String(item.categoryId), imageUrl: item.imageUrl, active: item.active, featured: item.featured,
+    });
+  };
 
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -81,13 +88,17 @@ export function MenuManager() {
     if (form.name.trim().length < 2) return void toast.error("Informe o nome do item.");
     if (price === null) return void toast.error("Informe um preço válido, por exemplo 24,90.");
     if (!form.categoryId) return void toast.error("Escolha uma categoria.");
+    const recipeLines = parseRecipeDraft(recipe);
+    if (!recipeLines) return;
     setSaving(true);
     try {
       const categoryId = Number(form.categoryId);
       const data = { categoryId, name: form.name.trim(), description: form.description.trim() || null, price, imageUrl: form.imageUrl, active: form.active, featured: form.featured };
-      if (form.id) await updateItem.mutateAsync({ id: form.id, data });
-      else await createItem.mutateAsync(data);
-      await Promise.all([refresh(), utils.adminMenu.categories.invalidate()]);
+      let itemId = form.id;
+      if (itemId) await updateItem.mutateAsync({ id: itemId, data });
+      else itemId = (await createItem.mutateAsync(data)).id;
+      await saveRecipe.mutateAsync({ menuItemId: itemId, lines: recipeLines });
+      await Promise.all([refresh(), utils.adminMenu.categories.invalidate(), utils.recipes.list.invalidate()]);
       toast.success(form.id ? "Item atualizado." : "Item adicionado ao cardápio.");
       setForm(null);
     } catch (error) {
@@ -193,6 +204,11 @@ export function MenuManager() {
               <div>
                 <label className="field-label" htmlFor="menu-desc">Descrição</label>
                 <Textarea id="menu-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} rows={3} maxLength={1000} placeholder="O que vem no item, tamanho, ingredientes…" />
+              </div>
+              <div>
+                <label className="field-label">O que vai neste item</label>
+                <p className="mb-2 text-xs text-[#776e63]">Quanto de cada ingrediente vai em 1 porção. Isso monta sua lista de compras em Estoque e produção.</p>
+                <RecipeEditor lines={recipe} onChange={setRecipe} />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-[#eeeae3] p-3">
                 <div><p className="text-sm font-semibold">Disponível no cardápio</p><p className="text-xs text-[#776e63]">Desmarque para ocultar sem excluir.</p></div>

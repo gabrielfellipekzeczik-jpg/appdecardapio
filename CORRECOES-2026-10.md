@@ -56,7 +56,7 @@ Mantenha confirmação de e-mail habilitada no Supabase Auth e template OTP de 6
 
 # Regras da loja e produção — 06/11/2026
 
-Antes de publicar, aplique no schema `marmitaria`, em ordem, `drizzle/0008_store_ordering_settings.sql` e `drizzle/0009_recipe_ingredients.sql`. Sem a 0008, a loja continua vendendo, mas o painel não salva horário, dinheiro e retirada. Sem a 0009, a aba Produção não abre as fichas técnicas.
+Antes de publicar, aplique no schema `marmitaria`, em ordem, `drizzle/0008_store_ordering_settings.sql`, `drizzle/0009_recipe_ingredients.sql` e `drizzle/0010_delivery_estimate_and_suppliers.sql`. Sem a 0008, a loja continua vendendo, mas o painel não salva horário, dinheiro e retirada. Sem a 0009, a aba Produção não abre as fichas técnicas.
 
 - O comprador confirma o e-mail antes de pagar: digita o endereço em dois campos iguais, recebe o código e valida. Assim nome, telefone e endereços ficam salvos na conta para a próxima compra.
 - Em Painel > Estoque e produção, tudo fica em uma tela: o que tenho, o que vou produzir e o que comprar. Cada prato tem uma receita por porção; ao informar as porções, o app soma os ingredientes, aplica a perda, desconta o estoque e monta a lista.
@@ -65,3 +65,4 @@ Antes de publicar, aplique no schema `marmitaria`, em ordem, `drizzle/0008_store
 - Pedidos online só aparecem na cozinha depois de pagos. Pedidos pagos na entrega entram direto, depois da confirmação do e-mail.
 - A tela do Pix oferece um novo pagamento depois de 30 minutos, e o cliente pode trocar a forma de pagamento. O servidor confere o Mercado Pago antes de cancelar.
 - Busca de endereço por CEP usa ViaCEP.
+- Taxa de entrega: sem Uber Direct ou motoboy próprio, a loja com endereço de retirada cobra pela distância da rua. O padrão é R$ 7,50 até 3 km e R$ 1,50 por km extra, com limite de 15 km, ajustável em Aparência > Regras de pedido. Os valores são uma referência, não o preço de um app naquele endereço.

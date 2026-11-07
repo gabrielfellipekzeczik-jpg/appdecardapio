@@ -45,6 +45,10 @@ export const companies = marmitaria.table("companies", {
     .default(false)
     .notNull(),
   pickupEnabled: boolean("pickupEnabled").default(false).notNull(),
+  deliveryBaseFee: numeric("deliveryBaseFee", { precision: 10, scale: 2 }),
+  deliveryIncludedKm: numeric("deliveryIncludedKm", { precision: 6, scale: 2 }),
+  deliveryPricePerKm: numeric("deliveryPricePerKm", { precision: 10, scale: 2 }),
+  deliveryMaxKm: numeric("deliveryMaxKm", { precision: 6, scale: 2 }),
   status: companyStatusEnum("status").default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -238,6 +242,7 @@ export const inventoryItems = marmitaria.table(
     costPerUnit: numeric("costPerUnit", { precision: 10, scale: 2 })
       .default("0")
       .notNull(),
+    lastSupplier: varchar("lastSupplier", { length: 160 }),
     active: boolean("active").default(true).notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   },

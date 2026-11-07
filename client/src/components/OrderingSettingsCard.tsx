@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { DEFAULT_DELIVERY_PRICING } from "@shared/delivery";
 import {
   DEFAULT_OPENING_HOURS,
   WEEKDAY_LABELS,
@@ -50,6 +51,10 @@ export function OrderingSettingsCard() {
   const [cash, setCash] = useState(false);
   const [pickup, setPickup] = useState(false);
   const [pickupAddress, setPickupAddress] = useState("");
+  const [baseFee, setBaseFee] = useState("");
+  const [includedKm, setIncludedKm] = useState("");
+  const [pricePerKm, setPricePerKm] = useState("");
+  const [maxKm, setMaxKm] = useState("");
   const mutation = trpc.company.updateOrdering.useMutation({
     onSuccess: () => {
       utils.company.mine.invalidate();
@@ -57,7 +62,7 @@ export function OrderingSettingsCard() {
     },
     onError: () =>
       toast.error(
-        "Não foi possível salvar. Confira se a migração 0008 foi aplicada no Supabase."
+        "Não foi possível salvar. Tente de novo em instantes."
       ),
   });
 
@@ -69,6 +74,13 @@ export function OrderingSettingsCard() {
     setCash(Boolean(company.acceptsCashOnDelivery));
     setPickup(Boolean(company.pickupEnabled));
     setPickupAddress(company.pickupAddress ?? "");
+    const text = (value: unknown, fallback: number) =>
+      String(value ?? fallback).replace(".", ",");
+    const defaults = DEFAULT_DELIVERY_PRICING;
+    setBaseFee(text(company.deliveryBaseFee, defaults.baseFee));
+    setIncludedKm(text(company.deliveryIncludedKm, defaults.includedKm));
+    setPricePerKm(text(company.deliveryPricePerKm, defaults.pricePerKm));
+    setMaxKm(text(company.deliveryMaxKm, defaults.maxKm));
   }, [companyQuery.data]);
 
   const updateDay = (day: number, patch: Partial<DayHours>) =>
@@ -78,6 +90,10 @@ export function OrderingSettingsCard() {
       )
     );
   const pickupInvalid = pickup && pickupAddress.trim().length < 5;
+  const parse = (value: string) => Number(value.replace(",", "."));
+  const pricingValues = [baseFee, includedKm, pricePerKm, maxKm].map(parse);
+  const pricingInvalid =
+    pricingValues.some(value => !(value >= 0)) || !(parse(maxKm) > 0);
 
   return (
     <Card className="border-0 shadow-sm">
@@ -110,6 +126,34 @@ export function OrderingSettingsCard() {
             />
           </div>
         )}
+        <div className="rounded-xl border border-[#eeeae3] p-3">
+          <p className="text-sm font-semibold">Taxa de entrega</p>
+          <p className="text-xs text-[#776e63]">
+            Calculada pela distância da rua entre a loja e o cliente, a partir
+            do endereço de retirada. Os valores iniciais usam como referência o
+            que o iFood paga ao entregador de moto. Ajuste para a sua região.
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(
+              [
+                ["Taxa mínima (R$)", baseFee, setBaseFee],
+                ["Incluso até (km)", includedKm, setIncludedKm],
+                ["Por km extra (R$)", pricePerKm, setPricePerKm],
+                ["Entrega até (km)", maxKm, setMaxKm],
+              ] as const
+            ).map(([label, value, setValue]) => (
+              <label key={label} className="text-xs font-semibold">
+                {label}
+                <Input
+                  inputMode="decimal"
+                  value={value}
+                  onChange={event => setValue(event.target.value)}
+                  className="mt-1"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
         <Toggle
           checked={useHours}
           onChange={setUseHours}
@@ -165,9 +209,13 @@ export function OrderingSettingsCard() {
               ...(pickupAddress.trim().length >= 5
                 ? { pickupAddress: pickupAddress.trim() }
                 : {}),
+              deliveryBaseFee: parse(baseFee),
+              deliveryIncludedKm: parse(includedKm),
+              deliveryPricePerKm: parse(pricePerKm),
+              deliveryMaxKm: parse(maxKm),
             })
           }
-          disabled={mutation.isPending || pickupInvalid}
+          disabled={mutation.isPending || pickupInvalid || pricingInvalid}
           className="rounded-xl bg-[#2f5d50] text-white"
         >
           <Save className="mr-2 h-4 w-4" /> Salvar regras

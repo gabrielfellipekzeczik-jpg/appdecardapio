@@ -24,6 +24,7 @@ type StockItem = {
   currentQuantity: number | string;
   minimumQuantity: number | string;
   costPerUnit: number | string;
+  lastSupplier?: string | null;
 };
 
 const toNumber = (value: number | string | null | undefined) =>
@@ -82,6 +83,7 @@ export function InventoryManager({ slug }: { slug: string }) {
                         {cost > 0
                           ? `${money(cost)} por ${item.unit}`
                           : "Sem preço informado"}
+                        {item.lastSupplier && ` · ${item.lastSupplier}`}
                       </p>
                       {low && (
                         <p className="flex items-center gap-1 text-xs font-semibold text-[#a05c32]">
@@ -127,6 +129,7 @@ function AddStockForm({ items }: { items: StockItem[] }) {
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState<string>("kg");
   const [paid, setPaid] = useState("");
+  const [supplier, setSupplier] = useState("");
   const [busy, setBusy] = useState(false);
 
   const existing = useMemo(
@@ -165,15 +168,19 @@ function AddStockForm({ items }: { items: StockItem[] }) {
         quantity: stockQuantity,
         reason: "Entrada no estoque",
       });
-      if (paidValue > 0)
+      if (paidValue > 0 || supplier.trim())
         await updateItem.mutateAsync({
           itemId: item.id,
-          costPerUnit: Math.round((paidValue / stockQuantity) * 100) / 100,
+          ...(paidValue > 0
+            ? { costPerUnit: Math.round((paidValue / stockQuantity) * 100) / 100 }
+            : {}),
+          ...(supplier.trim() ? { lastSupplier: supplier.trim() } : {}),
         });
       toast.success(`${amount(value)} ${selectedUnit} de ${item.name} no estoque.`);
       setName("");
       setQuantity("");
       setPaid("");
+      setSupplier("");
       await Promise.all([
         utils.inventory.list.invalidate(),
         utils.inventory.movements.invalidate(),
@@ -193,9 +200,9 @@ function AddStockForm({ items }: { items: StockItem[] }) {
         event.preventDefault();
         if (canSubmit) void submit();
       }}
-      className="grid grid-cols-2 gap-2 rounded-xl bg-[#f8f6f1] p-3 sm:grid-cols-[minmax(0,1.6fr)_90px_90px_minmax(0,1fr)_auto] sm:items-end"
+      className="grid grid-cols-2 gap-2 rounded-xl bg-[#f8f6f1] p-3 sm:grid-cols-4 sm:items-end"
     >
-      <label className="col-span-2 text-xs font-semibold sm:col-span-1">
+      <label className="col-span-2 text-xs font-semibold">
         Ingrediente
         <Input
           value={name}
@@ -232,8 +239,8 @@ function AddStockForm({ items }: { items: StockItem[] }) {
           ))}
         </select>
       </label>
-      <label className="col-span-2 text-xs font-semibold sm:col-span-1">
-        Quanto pagou no total (opcional)
+      <label className="text-xs font-semibold">
+        Quanto pagou no total
         <Input
           value={paid}
           onChange={event => setPaid(event.target.value)}
@@ -242,10 +249,20 @@ function AddStockForm({ items }: { items: StockItem[] }) {
           className="mt-1 h-11 rounded-xl bg-white text-base"
         />
       </label>
+      <label className="text-xs font-semibold">
+        Onde comprou
+        <Input
+          value={supplier}
+          onChange={event => setSupplier(event.target.value)}
+          maxLength={160}
+          placeholder="Ex.: Atacadão"
+          className="mt-1 h-11 rounded-xl bg-white text-base"
+        />
+      </label>
       <Button
         type="submit"
         disabled={!canSubmit}
-        className="col-span-2 h-11 rounded-xl bg-[#2f5d50] text-white sm:col-span-1"
+        className="col-span-2 h-11 rounded-xl bg-[#2f5d50] text-white"
       >
         <Plus className="mr-1.5 h-4 w-4" />
         {busy ? "Salvando…" : "Adicionar"}
@@ -268,6 +285,7 @@ function EditItemDialog({
   const [quantity, setQuantity] = useState(text(toNumber(item.currentQuantity)));
   const [cost, setCost] = useState(text(toNumber(item.costPerUnit)));
   const [minimum, setMinimum] = useState(text(toNumber(item.minimumQuantity)));
+  const [supplier, setSupplier] = useState(item.lastSupplier ?? "");
   const [busy, setBusy] = useState(false);
 
   const refresh = () =>
@@ -297,6 +315,7 @@ function EditItemDialog({
         itemId: item.id,
         costPerUnit: nextCost,
         minimumQuantity: nextMinimum,
+        lastSupplier: supplier.trim(),
       });
       await refresh();
       toast.success("Ingrediente atualizado.");
@@ -352,6 +371,16 @@ function EditItemDialog({
               value={cost}
               onChange={event => setCost(event.target.value)}
               inputMode="decimal"
+              className="mt-1 h-11 rounded-xl text-base"
+            />
+          </label>
+          <label className="block text-sm font-semibold">
+            Onde comprou por último
+            <Input
+              value={supplier}
+              onChange={event => setSupplier(event.target.value)}
+              maxLength={160}
+              placeholder="Ex.: Atacadão"
               className="mt-1 h-11 rounded-xl text-base"
             />
           </label>

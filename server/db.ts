@@ -99,6 +99,10 @@ export type Company = {
   openingHours?: OpeningHours | null;
   acceptsCashOnDelivery?: boolean;
   pickupEnabled?: boolean;
+  deliveryBaseFee?: number | string | null;
+  deliveryIncludedKm?: number | string | null;
+  deliveryPricePerKm?: number | string | null;
+  deliveryMaxKm?: number | string | null;
   status: "active" | "suspended";
   mp_connected: boolean;
   mp_fee_percent: number | null;
@@ -377,11 +381,10 @@ export async function createCustomerOrder(
     (sum, item) => sum + item.unitPrice * item.quantity,
     0
   );
-  const deliveryProvider = await getActiveDeliveryProvider(companyId);
   const deliveryFee = calculateDeliveryFee(
     subtotal,
     input.address,
-    Boolean(deliveryProvider) && !input.pickup,
+    !input.pickup,
     input.addressNumber,
     input.deliveryFee ?? 0
   );
@@ -1194,6 +1197,7 @@ export async function createInventoryItem(
     unit: string;
     minimumQuantity: number;
     costPerUnit: number;
+    lastSupplier?: string;
   }
 ): Promise<InventoryItemResult> {
   if (isTestMode()) return testCreateInventoryItem(input);
@@ -1207,6 +1211,7 @@ export async function createInventoryItem(
       currentQuantity: "0.000",
       minimumQuantity: input.minimumQuantity.toFixed(3),
       costPerUnit: input.costPerUnit.toFixed(2),
+      ...(input.lastSupplier ? { lastSupplier: input.lastSupplier } : {}),
       active: true,
       updatedAt: new Date().toISOString(),
     } as Record<string, unknown>)
@@ -1225,6 +1230,7 @@ export async function updateInventoryItem(
     itemId: number;
     costPerUnit?: number;
     minimumQuantity?: number;
+    lastSupplier?: string;
     active?: boolean;
   }
 ) {
@@ -1239,6 +1245,9 @@ export async function updateInventoryItem(
       ...(input.minimumQuantity === undefined
         ? {}
         : { minimumQuantity: input.minimumQuantity.toFixed(3) }),
+      ...(input.lastSupplier === undefined
+        ? {}
+        : { lastSupplier: input.lastSupplier }),
       ...(input.active === undefined ? {} : { active: input.active }),
       updatedAt: new Date().toISOString(),
     } as Record<string, unknown>)

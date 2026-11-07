@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
+import { routableAddress } from "./integrations/deliveryPricing";
+import {
+  DEFAULT_DELIVERY_PRICING,
+  estimateDeliveryFee,
+} from "@shared/delivery";
 import {
   buildProductionPlan,
   compatibleUnits,
@@ -39,6 +44,33 @@ const plan = (overrides = {}) =>
   });
 const line = (id: number, overrides = {}) =>
   plan(overrides).lines.find(entry => entry.inventoryItemId === id)!;
+
+describe("taxa de entrega estimada", () => {
+  const pricing = DEFAULT_DELIVERY_PRICING;
+
+  it("cobra a taxa mínima até a distância inclusa", () => {
+    expect(estimateDeliveryFee(1, pricing)).toBe(7.5);
+    expect(estimateDeliveryFee(3, pricing)).toBe(7.5);
+  });
+
+  it("soma o valor por km depois da distância inclusa", () => {
+    expect(estimateDeliveryFee(7.2, pricing)).toBe(13.8);
+  });
+
+  it("respeita os valores definidos pela loja", () => {
+    expect(
+      estimateDeliveryFee(5, { baseFee: 5, includedKm: 2, pricePerKm: 2, maxKm: 10 })
+    ).toBe(11);
+  });
+
+  it("tira complemento e referência da busca do endereço", () => {
+    expect(
+      routableAddress(
+        "Rua Augusta - Consolação, São Paulo - SP, 01304-001, Apto 12, Referência: Portão azul, nº 100"
+      )
+    ).toBe("Rua Augusta - Consolação, São Paulo - SP, 01304-001, nº 100");
+  });
+});
 
 describe("conversões", () => {
   it("converte peso e volume e bloqueia unidades sem relação", () => {

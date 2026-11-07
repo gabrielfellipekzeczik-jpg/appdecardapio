@@ -46,6 +46,7 @@ export type PlanStockItem = {
   currentQuantity: number;
   minimumQuantity: number;
   costPerUnit: number;
+  lastSupplier?: string | null;
 };
 
 export type ShoppingLine = {
@@ -58,6 +59,7 @@ export type ShoppingLine = {
   estimatedCost: number;
   hasCost: boolean;
   usedIn: string[];
+  lastSupplier: string | null;
 };
 
 const roundUp = (value: number, step: number) =>
@@ -124,6 +126,7 @@ export function buildProductionPlan(input: {
       estimatedCost: Math.round(toBuy * item.costPerUnit * 100) / 100,
       hasCost: item.costPerUnit > 0,
       usedIn: Array.from(total.usedIn),
+      lastSupplier: item.lastSupplier || null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 

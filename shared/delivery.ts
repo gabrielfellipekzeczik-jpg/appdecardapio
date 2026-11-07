@@ -21,6 +21,33 @@ export function calculateOwnCourierFee(
   return Math.round(distanceKm * pricePerKm * 100) / 100;
 }
 
+export type DeliveryPricing = {
+  baseFee: number;
+  includedKm: number;
+  pricePerKm: number;
+  maxKm: number;
+};
+
+/**
+ * Referência pública: repasse do iFood ao entregador de moto (R$ 7,50 de mínimo e
+ * R$ 1,50 por km, valores de 2025). Nenhum app publica tabela por cidade, então a
+ * loja pode ajustar estes números em Aparência > Regras de pedido.
+ */
+export const DEFAULT_DELIVERY_PRICING: DeliveryPricing = {
+  baseFee: 7.5,
+  includedKm: 3,
+  pricePerKm: 1.5,
+  maxKm: 15,
+};
+
+export function estimateDeliveryFee(
+  distanceKm: number,
+  pricing: DeliveryPricing
+): number {
+  const extraKm = Math.max(0, distanceKm - pricing.includedKm);
+  return Math.round((pricing.baseFee + extraKm * pricing.pricePerKm) * 100) / 100;
+}
+
 /** Converte o retorno da Uber (centavos) em reais sem interpretar moedas estrangeiras como BRL. */
 export function minorUnitsToBRL(value: number, currency: string): number {
   if (

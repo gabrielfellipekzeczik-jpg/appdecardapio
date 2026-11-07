@@ -33,6 +33,10 @@ export function buildTestCompany(slug: string): Company {
     openingHours: null,
     acceptsCashOnDelivery: slug === "loja-completa",
     pickupEnabled: slug === "loja-completa",
+    deliveryBaseFee: null,
+    deliveryIncludedKm: null,
+    deliveryPricePerKm: null,
+    deliveryMaxKm: null,
     status: "active",
     createdAt: new Date(),
   };

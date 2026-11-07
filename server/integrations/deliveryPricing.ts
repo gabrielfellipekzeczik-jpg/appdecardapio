@@ -71,6 +71,71 @@ async function geocode(address: string): Promise<Coordinates> {
   return coordinates;
 }
 
+/** Busca mais tolerante a endereço incompleto, usada quando a primeira não acha. */
+async function geocodeLoose(address: string): Promise<Coordinates> {
+  const url = new URL("https://photon.komoot.io/api/");
+  url.searchParams.set("q", address);
+  url.searchParams.set("limit", "1");
+  const response = await fetch(url, {
+    headers: { accept: "application/geo+json", "user-agent": "MarmitariaApp/1.0" },
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!response.ok)
+    throw new Error("Não foi possível localizar esse endereço agora.");
+  const payload = (await response.json()) as {
+    features?: { geometry?: { coordinates?: [number, number] } }[];
+  };
+  const point = payload.features?.[0]?.geometry?.coordinates;
+  if (!point)
+    throw new Error(
+      "Não encontramos esse endereço. Confira rua, número e cidade."
+    );
+  return { latitude: point[1], longitude: point[0] };
+}
+
+async function locate(address: string) {
+  try {
+    return await geocode(address);
+  } catch {
+    return geocodeLoose(address);
+  }
+}
+
+/** Linha reta com folga para o traçado das ruas, usada só se o serviço de rotas cair. */
+function straightLineMeters(origin: Coordinates, destination: Coordinates) {
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const latitudeDelta = radians(destination.latitude - origin.latitude);
+  const longitudeDelta = radians(destination.longitude - origin.longitude);
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(origin.latitude)) *
+      Math.cos(radians(destination.latitude)) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(a)) * ROAD_DETOUR_FACTOR;
+}
+const ROAD_DETOUR_FACTOR = 1.35;
+
+/** Tira complemento e referência, que atrapalham a busca e não mudam a rota. */
+export function routableAddress(address: string) {
+  return address
+    .replace(/,?\s*Referência:.*?(?=,\s*nº|$)/i, "")
+    .replace(/,?\s*(apto|apartamento|ap|bloco|bl|casa|sala|fundos)\b[^,]*/gi, "")
+    .trim();
+}
+
+/** Distância pela rua entre a loja e o cliente, em km, arredondada para cima em décimos. */
+export async function distanceBetweenAddresses(
+  pickupAddress: string,
+  dropoffAddress: string
+) {
+  const origin = await locate(pickupAddress);
+  const destination = await locate(routableAddress(dropoffAddress));
+  const meters = await getRoadDistanceMeters(origin, destination).catch(() =>
+    straightLineMeters(origin, destination)
+  );
+  return Math.ceil(meters / 100) / 10;
+}
+
 async function getRoadDistanceMeters(
   origin: Coordinates,
   destination: Coordinates

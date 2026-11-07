@@ -5,9 +5,7 @@ import {
   ClipboardCopy,
   Download,
   MessageCircle,
-  Plus,
   ShoppingCart,
-  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,18 +18,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  RecipeEditor,
+  parseRecipeDraft,
+  toRecipeDraft,
+  type RecipeDraftLine,
+} from "@/components/RecipeEditor";
 import { trpc } from "@/lib/trpc";
 import {
   MAX_LOSS_PERCENT,
   buildProductionPlan,
-  compatibleUnits,
   type PlanStockItem,
   type RecipeLine,
   type ShoppingLine,
 } from "@shared/production-plan";
-
-const STOCK_UNITS = ["kg", "g", "L", "ml", "un", "cx", "pct"] as const;
-type StockUnit = (typeof STOCK_UNITS)[number];
 
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -64,13 +64,16 @@ function readPlan(slug: string): SavedPlan {
 function listAsText(lines: ShoppingLine[]) {
   return [
     "Lista de compras",
-    ...lines.map(line => `- ${line.name}: ${amount(line.toBuy)} ${line.unit}`),
+    ...lines.map(
+      line =>
+        `- ${line.name}: ${amount(line.toBuy)} ${line.unit}${line.lastSupplier ? ` (${line.lastSupplier})` : ""}`
+    ),
   ].join("\n");
 }
 
 function downloadCsv(lines: ShoppingLine[]) {
   const rows = [
-    ["Ingrediente", "Unidade", "Necessário", "Em estoque", "Comprar", "Custo estimado"],
+    ["Ingrediente", "Unidade", "Necessário", "Em estoque", "Comprar", "Custo estimado", "Onde comprar"],
     ...lines.map(line => [
       line.name,
       line.unit,
@@ -78,6 +81,7 @@ function downloadCsv(lines: ShoppingLine[]) {
       amount(line.inStock),
       amount(line.toBuy),
       line.hasCost ? line.estimatedCost.toFixed(2).replace(".", ",") : "",
+      line.lastSupplier ?? "",
     ]),
   ];
   const csv = rows
@@ -132,6 +136,7 @@ export function ProductionPlanner({ slug }: { slug: string }) {
         currentQuantity: Number(item.currentQuantity) || 0,
         minimumQuantity: Number(item.minimumQuantity) || 0,
         costPerUnit: Number(item.costPerUnit) || 0,
+        lastSupplier: (item.lastSupplier as string | null) ?? null,
       })),
     [stockQuery.data]
   );
@@ -376,6 +381,11 @@ export function ProductionPlanner({ slug }: { slug: string }) {
                         ? `Comprar ${amount(line.toBuy)} ${line.unit}${line.hasCost ? ` · ${money(line.estimatedCost)}` : ""}`
                         : "Já tem o suficiente"}
                     </p>
+                    {line.toBuy > 0 && line.lastSupplier && (
+                      <p className="text-xs text-[#776e63]">
+                        Última compra: {line.lastSupplier}
+                      </p>
+                    )}
                   </div>
                   {line.toBuy > 0 && (
                     <Button
@@ -405,144 +415,37 @@ export function ProductionPlanner({ slug }: { slug: string }) {
       {editing && (
         <RecipeDialog
           dish={editing}
-          stock={stock}
           lines={recipes.filter(line => line.menuItemId === editing.id)}
           onClose={() => setEditing(null)}
           onSaved={() => {
             void recipesQuery.refetch();
             setEditing(null);
           }}
-          onStockChanged={() => stockQuery.refetch()}
         />
       )}
     </div>
   );
 }
 
-type DraftLine = {
-  inventoryItemId: number;
-  quantity: string;
-  unit: string;
-  lossPercent: string;
-};
-
 function RecipeDialog({
   dish,
-  stock,
   lines,
   onClose,
   onSaved,
-  onStockChanged,
 }: {
   dish: { id: number; name: string };
-  stock: PlanStockItem[];
   lines: RecipeLine[];
   onClose: () => void;
   onSaved: () => void;
-  onStockChanged: () => void;
 }) {
-  const [draft, setDraft] = useState<DraftLine[]>(() =>
-    lines.map(line => ({
-      inventoryItemId: line.inventoryItemId,
-      quantity: String(line.quantity).replace(".", ","),
-      unit: line.unit,
-      lossPercent:
-        line.lossPercent === null
-          ? ""
-          : String(line.lossPercent).replace(".", ","),
-    }))
+  const [draft, setDraft] = useState<RecipeDraftLine[]>(() =>
+    lines.map(toRecipeDraft)
   );
-  const [created, setCreated] = useState<PlanStockItem[]>([]);
-  const [newName, setNewName] = useState("");
-  const [newUnit, setNewUnit] = useState<StockUnit>("kg");
   const saveMutation = trpc.recipes.save.useMutation();
-  const createItem = trpc.inventory.createItem.useMutation();
-
-  const known = [...stock, ...created.filter(item => !stock.some(entry => entry.id === item.id))];
-  const match = known.find(
-    item =>
-      item.name.trim().toLocaleLowerCase("pt-BR") ===
-      newName.trim().toLocaleLowerCase("pt-BR")
-  );
-  const addLine = (item: { id: number; unit: string }) => {
-    setDraft(current =>
-      current.some(line => line.inventoryItemId === item.id)
-        ? current
-        : [
-            ...current,
-            {
-              inventoryItemId: item.id,
-              quantity: "",
-              // Porção costuma ser pequena: já sugere gramas ou mililitros.
-              unit: compatibleUnits(item.unit)[0],
-              lossPercent: "",
-            },
-          ]
-    );
-    setNewName("");
-  };
-  const updateLine = (id: number, patch: Partial<DraftLine>) =>
-    setDraft(current =>
-      current.map(line =>
-        line.inventoryItemId === id ? { ...line, ...patch } : line
-      )
-    );
-
-  const addIngredient = async () => {
-    if (match) {
-      addLine(match);
-      return;
-    }
-    try {
-      const item = await createItem.mutateAsync({
-        name: newName.trim(),
-        unit: newUnit,
-        minimumQuantity: 0,
-        costPerUnit: 0,
-      });
-      setCreated(current => [
-        ...current,
-        {
-          id: item.id,
-          name: newName.trim(),
-          unit: newUnit,
-          currentQuantity: 0,
-          minimumQuantity: 0,
-          costPerUnit: 0,
-        },
-      ]);
-      addLine({ id: item.id, unit: newUnit });
-      onStockChanged();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível criar o ingrediente."
-      );
-    }
-  };
 
   const save = async () => {
-    const parsed = draft.map(line => ({
-      inventoryItemId: line.inventoryItemId,
-      quantity: parseNumber(line.quantity),
-      unit: line.unit,
-      lossPercent: line.lossPercent.trim()
-        ? parseNumber(line.lossPercent)
-        : null,
-    }));
-    const invalid = parsed.some(
-      line =>
-        !(line.quantity > 0) ||
-        (line.lossPercent !== null &&
-          !(line.lossPercent >= 0 && line.lossPercent <= MAX_LOSS_PERCENT))
-    );
-    if (invalid) {
-      toast.error(
-        `Informe a quantidade de cada ingrediente. A perda vai de 0 a ${MAX_LOSS_PERCENT}%.`
-      );
-      return;
-    }
+    const parsed = parseRecipeDraft(draft);
+    if (!parsed) return;
     try {
       await saveMutation.mutateAsync({ menuItemId: dish.id, lines: parsed });
       toast.success("Receita salva.");
@@ -564,124 +467,7 @@ function RecipeDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="rounded-xl bg-[#f8f6f1] p-3">
-            <label className="text-xs font-semibold">
-              Adicionar ingrediente
-              <Input
-                value={newName}
-                onChange={event => setNewName(event.target.value)}
-                list="recipe-ingredient-names"
-                placeholder="Ex.: Arroz"
-                className="mt-1 h-11 rounded-xl bg-white text-base"
-              />
-              <datalist id="recipe-ingredient-names">
-                {known.map(item => (
-                  <option key={item.id} value={item.name} />
-                ))}
-              </datalist>
-            </label>
-            {newName.trim().length >= 2 && !match && (
-              <label className="mt-2 block text-xs font-semibold">
-                Ingrediente novo. Como você compra?
-                <select
-                  value={newUnit}
-                  onChange={event =>
-                    setNewUnit(event.target.value as StockUnit)
-                  }
-                  className="mt-1 h-11 w-full rounded-xl border border-[#e5e0d7] bg-white px-2 text-base"
-                >
-                  {STOCK_UNITS.map(unit => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addIngredient}
-              disabled={newName.trim().length < 2 || createItem.isPending}
-              className="mt-2 h-11 w-full rounded-xl bg-white"
-            >
-              <Plus className="mr-1.5 h-4 w-4" /> Adicionar à receita
-            </Button>
-          </div>
-
-          {draft.map(line => {
-            const item = known.find(entry => entry.id === line.inventoryItemId);
-            return (
-              <div
-                key={line.inventoryItemId}
-                className="rounded-xl border border-[#eeeae3] p-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold">
-                    {item?.name ?? "Ingrediente"}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label={`Remover ${item?.name ?? "ingrediente"}`}
-                    onClick={() =>
-                      setDraft(current =>
-                        current.filter(
-                          entry =>
-                            entry.inventoryItemId !== line.inventoryItemId
-                        )
-                      )
-                    }
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[#a79b8d] hover:bg-[#f1ece3]"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="text-xs font-semibold">
-                    Em 1 porção
-                    <Input
-                      inputMode="decimal"
-                      value={line.quantity}
-                      onChange={event =>
-                        updateLine(line.inventoryItemId, {
-                          quantity: event.target.value,
-                        })
-                      }
-                      placeholder="150"
-                      className="mt-1 h-11 w-24 rounded-xl text-base"
-                    />
-                  </label>
-                  <select
-                    aria-label="Unidade"
-                    value={line.unit}
-                    onChange={event =>
-                      updateLine(line.inventoryItemId, {
-                        unit: event.target.value,
-                      })
-                    }
-                    className="h-11 rounded-xl border border-[#e5e0d7] bg-white px-2 text-base"
-                  >
-                    {compatibleUnits(item?.unit ?? line.unit).map(unit => (
-                      <option key={unit}>{unit}</option>
-                    ))}
-                  </select>
-                  <label className="text-xs font-semibold">
-                    Perda (%), se for diferente
-                    <Input
-                      inputMode="decimal"
-                      value={line.lossPercent}
-                      onChange={event =>
-                        updateLine(line.inventoryItemId, {
-                          lossPercent: event.target.value,
-                        })
-                      }
-                      placeholder="Padrão"
-                      className="mt-1 h-11 w-28 rounded-xl text-base"
-                    />
-                  </label>
-                </div>
-              </div>
-            );
-          })}
-
+          <RecipeEditor lines={draft} onChange={setDraft} />
           <Button
             onClick={save}
             disabled={saveMutation.isPending}

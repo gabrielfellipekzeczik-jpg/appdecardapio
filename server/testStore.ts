@@ -359,10 +359,13 @@ export function testUpdateInventoryItem(input: {
   itemId: number;
   costPerUnit?: number;
   minimumQuantity?: number;
+  lastSupplier?: string;
   active?: boolean;
 }) {
   const item = inventoryItems.find(entry => entry.id === input.itemId);
   if (!item) return false;
+  if (input.lastSupplier !== undefined)
+    Object.assign(item, { lastSupplier: input.lastSupplier });
   if (input.costPerUnit !== undefined)
     item.costPerUnit = input.costPerUnit.toFixed(2);
   if (input.minimumQuantity !== undefined)

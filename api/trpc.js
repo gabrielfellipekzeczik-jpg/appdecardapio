@@ -285,6 +285,10 @@ function buildTestCompany(slug) {
     openingHours: null,
     acceptsCashOnDelivery: slug === "loja-completa",
     pickupEnabled: slug === "loja-completa",
+    deliveryBaseFee: null,
+    deliveryIncludedKm: null,
+    deliveryPricePerKm: null,
+    deliveryMaxKm: null,
     status: "active",
     createdAt: /* @__PURE__ */ new Date()
   };
@@ -394,6 +398,8 @@ function testCreateInventoryItem(input) {
 function testUpdateInventoryItem(input) {
   const item = inventoryItems.find((entry) => entry.id === input.itemId);
   if (!item) return false;
+  if (input.lastSupplier !== void 0)
+    Object.assign(item, { lastSupplier: input.lastSupplier });
   if (input.costPerUnit !== void 0)
     item.costPerUnit = input.costPerUnit.toFixed(2);
   if (input.minimumQuantity !== void 0)
@@ -1046,11 +1052,10 @@ async function createCustomerOrder(companyId, input) {
     (sum, item) => sum + item.unitPrice * item.quantity,
     0
   );
-  const deliveryProvider = await getActiveDeliveryProvider(companyId);
   const deliveryFee = calculateDeliveryFee(
     subtotal,
     input.address,
-    Boolean(deliveryProvider) && !input.pickup,
+    !input.pickup,
     input.addressNumber,
     input.deliveryFee ?? 0
   );
@@ -1521,6 +1526,7 @@ async function createInventoryItem(companyId, input) {
     currentQuantity: "0.000",
     minimumQuantity: input.minimumQuantity.toFixed(3),
     costPerUnit: input.costPerUnit.toFixed(2),
+    ...input.lastSupplier ? { lastSupplier: input.lastSupplier } : {},
     active: true,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   }).select("*").single();
@@ -1536,6 +1542,7 @@ async function updateInventoryItem(companyId, input) {
   const { data, error } = await db.from("inventory_items").update({
     ...input.costPerUnit === void 0 ? {} : { costPerUnit: input.costPerUnit.toFixed(2) },
     ...input.minimumQuantity === void 0 ? {} : { minimumQuantity: input.minimumQuantity.toFixed(3) },
+    ...input.lastSupplier === void 0 ? {} : { lastSupplier: input.lastSupplier },
     ...input.active === void 0 ? {} : { active: input.active },
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   }).eq("id", input.itemId).eq("companyId", companyId).select("id");
@@ -2121,6 +2128,38 @@ function compatibleUnits(stockUnit) {
 }
 var MAX_LOSS_PERCENT = 90;
 
+// shared/delivery.ts
+function calculateOwnCourierFee(distanceKm, pricePerKm) {
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0 || !Number.isFinite(pricePerKm) || pricePerKm < 0) {
+    throw new Error("Dist\xE2ncia e tarifa por km precisam ser valores v\xE1lidos.");
+  }
+  return Math.round(distanceKm * pricePerKm * 100) / 100;
+}
+var DEFAULT_DELIVERY_PRICING = {
+  baseFee: 7.5,
+  includedKm: 3,
+  pricePerKm: 1.5,
+  maxKm: 15
+};
+function estimateDeliveryFee(distanceKm, pricing) {
+  const extraKm = Math.max(0, distanceKm - pricing.includedKm);
+  return Math.round((pricing.baseFee + extraKm * pricing.pricePerKm) * 100) / 100;
+}
+function minorUnitsToBRL(value, currency) {
+  if (currency.toUpperCase() !== "BRL" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Cota\xE7\xE3o inv\xE1lida: esperado um valor em centavos de BRL.");
+  }
+  return value / 100;
+}
+function unavailableDeliveryResponse(provider, reason) {
+  return {
+    provider,
+    available: false,
+    trackingUrl: null,
+    reason: reason ?? "Conecte um provedor de entrega em Integra\xE7\xF5es para ativar o despacho autom\xE1tico."
+  };
+}
+
 // server/routers.ts
 import { createHash as createHash3, randomUUID } from "node:crypto";
 import { z as z2 } from "zod";
@@ -2278,30 +2317,6 @@ var systemRouter = router({
 // server/routers.ts
 init_companies();
 init_testData();
-
-// shared/delivery.ts
-function calculateOwnCourierFee(distanceKm, pricePerKm) {
-  if (!Number.isFinite(distanceKm) || distanceKm <= 0 || !Number.isFinite(pricePerKm) || pricePerKm < 0) {
-    throw new Error("Dist\xE2ncia e tarifa por km precisam ser valores v\xE1lidos.");
-  }
-  return Math.round(distanceKm * pricePerKm * 100) / 100;
-}
-function minorUnitsToBRL(value, currency) {
-  if (currency.toUpperCase() !== "BRL" || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error("Cota\xE7\xE3o inv\xE1lida: esperado um valor em centavos de BRL.");
-  }
-  return value / 100;
-}
-function unavailableDeliveryResponse(provider, reason) {
-  return {
-    provider,
-    available: false,
-    trackingUrl: null,
-    reason: reason ?? "Conecte um provedor de entrega em Integra\xE7\xF5es para ativar o despacho autom\xE1tico."
-  };
-}
-
-// server/routers.ts
 init_db();
 
 // server/integrations/mercadoPago.ts
@@ -2818,6 +2833,50 @@ async function geocode(address) {
     geocodeCache.delete(geocodeCache.keys().next().value);
   return coordinates;
 }
+async function geocodeLoose(address) {
+  const url = new URL("https://photon.komoot.io/api/");
+  url.searchParams.set("q", address);
+  url.searchParams.set("limit", "1");
+  const response = await fetch(url, {
+    headers: { accept: "application/geo+json", "user-agent": "MarmitariaApp/1.0" },
+    signal: AbortSignal.timeout(6e3)
+  });
+  if (!response.ok)
+    throw new Error("N\xE3o foi poss\xEDvel localizar esse endere\xE7o agora.");
+  const payload = await response.json();
+  const point = payload.features?.[0]?.geometry?.coordinates;
+  if (!point)
+    throw new Error(
+      "N\xE3o encontramos esse endere\xE7o. Confira rua, n\xFAmero e cidade."
+    );
+  return { latitude: point[1], longitude: point[0] };
+}
+async function locate(address) {
+  try {
+    return await geocode(address);
+  } catch {
+    return geocodeLoose(address);
+  }
+}
+function straightLineMeters(origin, destination) {
+  const radians = (value) => value * Math.PI / 180;
+  const latitudeDelta = radians(destination.latitude - origin.latitude);
+  const longitudeDelta = radians(destination.longitude - origin.longitude);
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(origin.latitude)) * Math.cos(radians(destination.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * 6371e3 * Math.asin(Math.sqrt(a)) * ROAD_DETOUR_FACTOR;
+}
+var ROAD_DETOUR_FACTOR = 1.35;
+function routableAddress(address) {
+  return address.replace(/,?\s*Referência:.*?(?=,\s*nº|$)/i, "").replace(/,?\s*(apto|apartamento|ap|bloco|bl|casa|sala|fundos)\b[^,]*/gi, "").trim();
+}
+async function distanceBetweenAddresses(pickupAddress, dropoffAddress) {
+  const origin = await locate(pickupAddress);
+  const destination = await locate(routableAddress(dropoffAddress));
+  const meters = await getRoadDistanceMeters(origin, destination).catch(
+    () => straightLineMeters(origin, destination)
+  );
+  return Math.ceil(meters / 100) / 10;
+}
 async function getRoadDistanceMeters(origin, destination) {
   const pair = `${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`;
   const response = await fetch(
@@ -2845,8 +2904,8 @@ async function quoteOwnCourier(input) {
     latitude: input.pickupLatitude,
     longitude: input.pickupLongitude
   };
-  const routableAddress = input.dropoffAddress.replace(/,?\s*Referência:.*$/i, "").trim();
-  const destination = await geocode(routableAddress);
+  const routableAddress2 = input.dropoffAddress.replace(/,?\s*Referência:.*$/i, "").trim();
+  const destination = await geocode(routableAddress2);
   const distanceMeters = await getRoadDistanceMeters(origin, destination);
   const distanceKm = Math.ceil(distanceMeters / 100) / 10;
   return {
@@ -2949,6 +3008,36 @@ var menuItemInput = z2.object({
   active: z2.boolean().optional(),
   featured: z2.boolean().optional()
 });
+function deliveryPricingOf(company) {
+  const value = (raw, fallback) => {
+    const parsed = Number(raw);
+    return raw === null || raw === void 0 || !Number.isFinite(parsed) ? fallback : parsed;
+  };
+  const base = DEFAULT_DELIVERY_PRICING;
+  return {
+    baseFee: value(company.deliveryBaseFee, base.baseFee),
+    includedKm: value(company.deliveryIncludedKm, base.includedKm),
+    pricePerKm: value(company.deliveryPricePerKm, base.pricePerKm),
+    maxKm: value(company.deliveryMaxKm, base.maxKm)
+  };
+}
+async function quoteModeFor(company) {
+  const provider = await getActiveDeliveryProvider(company.id);
+  if (provider === "uber_direct" || provider === "own_courier") return provider;
+  return company.pickupAddress && !isTestMode() ? "estimate" : void 0;
+}
+async function estimateFor(company, dropoffAddress) {
+  const pricing = deliveryPricingOf(company);
+  const distanceKm = await distanceBetweenAddresses(
+    company.pickupAddress ?? "",
+    dropoffAddress
+  );
+  if (distanceKm > pricing.maxKm)
+    throw new Error(
+      `Entregamos at\xE9 ${pricing.maxKm} km. Este endere\xE7o fica a ${distanceKm.toFixed(1).replace(".", ",")} km.`
+    );
+  return { fee: estimateDeliveryFee(distanceKm, pricing), distanceKm };
+}
 var orderRateLimiter = createRateLimiter(8, 10 * 6e4);
 var MAX_UNPAID_ORDERS_PER_HOUR = 5;
 async function lookupCep(cep) {
@@ -3083,7 +3172,11 @@ var appRouter = router({
         openingHours: openingHoursInput,
         acceptsCashOnDelivery: z2.boolean(),
         pickupEnabled: z2.boolean(),
-        pickupAddress: z2.string().trim().min(5).optional()
+        pickupAddress: z2.string().trim().min(5).optional(),
+        deliveryBaseFee: z2.number().min(0).max(1e3).optional(),
+        deliveryIncludedKm: z2.number().min(0).max(100).optional(),
+        deliveryPricePerKm: z2.number().min(0).max(100).optional(),
+        deliveryMaxKm: z2.number().positive().max(200).optional()
       })
     ).mutation(
       ({ ctx, input }) => updateCompanyOrdering(ctx.companyId, input)
@@ -3226,7 +3319,7 @@ var appRouter = router({
           code: "TOO_MANY_REQUESTS",
           message: "Este telefone tem muitos pedidos sem pagamento. Tente de novo mais tarde."
         });
-      const provider = pickup ? void 0 : await getActiveDeliveryProvider(company.id);
+      const provider = pickup ? void 0 : await quoteModeFor(company);
       let fee = 0;
       let quoteId = null;
       if (provider) {
@@ -3295,11 +3388,11 @@ var appRouter = router({
       })
     ).mutation(async ({ ctx, input }) => {
       const { paymentMode, payerEmail, ...orderInput } = input;
-      const provider = await getActiveDeliveryProvider(ctx.companyId);
+      const company = await getCompanyById(ctx.companyId);
+      const provider = company ? await quoteModeFor(company) : void 0;
       let deliveryFee = 0;
       let deliveryQuoteId = null;
       if (provider) {
-        const company = await getCompanyById(ctx.companyId);
         if (!company?.pickupAddress)
           throw new TRPCError2({
             code: "PRECONDITION_FAILED",
@@ -3330,10 +3423,7 @@ var appRouter = router({
           });
           deliveryFee = quote.fee;
         } else {
-          throw new TRPCError2({
-            code: "PRECONDITION_FAILED",
-            message: "Este provedor n\xE3o disponibiliza cota\xE7\xE3o din\xE2mica para pedido manual."
-          });
+          deliveryFee = await estimateFor(company, dropoffAddress).then((quote) => quote.fee).catch(() => 0);
         }
       }
       const created = await createCustomerOrder(ctx.companyId, {
@@ -3676,7 +3766,8 @@ var appRouter = router({
         name: z2.string().trim().min(2).max(160),
         unit: z2.enum(["un", "kg", "g", "L", "ml", "cx", "pct"]),
         minimumQuantity: z2.number().min(0).max(1e9),
-        costPerUnit: z2.number().min(0).max(1e8)
+        costPerUnit: z2.number().min(0).max(1e8),
+        lastSupplier: z2.string().trim().max(160).optional()
       })
     ).mutation(({ ctx, input }) => createInventoryItem(ctx.companyId, input)),
     updateItem: companyAdminProcedure.input(
@@ -3684,6 +3775,7 @@ var appRouter = router({
         itemId: z2.number().int().positive(),
         costPerUnit: z2.number().min(0).max(1e8).optional(),
         minimumQuantity: z2.number().min(0).max(1e9).optional(),
+        lastSupplier: z2.string().trim().max(160).optional(),
         active: z2.boolean().optional()
       })
     ).mutation(async ({ ctx, input }) => {
@@ -3765,7 +3857,7 @@ var appRouter = router({
       const company = await requireCompanyBySlug(input.companySlug);
       const [credentials, deliveryProvider] = await Promise.all([
         getConnectedCredentials(company.id),
-        getActiveDeliveryProvider(company.id)
+        quoteModeFor(company)
       ]);
       return {
         connected: Boolean(credentials),
@@ -3781,7 +3873,7 @@ var appRouter = router({
       })
     ).mutation(async ({ input }) => {
       const company = await requireCompanyBySlug(input.companySlug);
-      const provider = await getActiveDeliveryProvider(company.id);
+      const provider = await quoteModeFor(company);
       if (!provider)
         return {
           provider: null,
@@ -3829,9 +3921,10 @@ var appRouter = router({
           distanceKm = quote.distanceKm;
           expiresAt = Date.now() + 5 * 6e4;
         } else {
-          throw new Error(
-            "Esse provedor ainda n\xE3o oferece cota\xE7\xE3o din\xE2mica no checkout. Configure Uber Direct ou motoboy pr\xF3prio."
-          );
+          const quote = await estimateFor(company, dropoffAddress);
+          fee = quote.fee;
+          distanceKm = quote.distanceKm;
+          expiresAt = Date.now() + 5 * 6e4;
         }
         const payload = {
           companyId: company.id,

@@ -57,6 +57,10 @@ export async function updateCompanyOrdering(companyId: number, input: {
   acceptsCashOnDelivery: boolean;
   pickupEnabled: boolean;
   pickupAddress?: string;
+  deliveryBaseFee?: number;
+  deliveryIncludedKm?: number;
+  deliveryPricePerKm?: number;
+  deliveryMaxKm?: number;
 }) {
   const db = getDb();
   const { error } = await db.from("companies").update(input as Record<string, unknown>).eq("id", companyId);

@@ -38,6 +38,10 @@ export function buildDemoCompany(slug: string): Company {
     openingHours: null,
     acceptsCashOnDelivery: false,
     pickupEnabled: false,
+    deliveryBaseFee: null,
+    deliveryIncludedKm: null,
+    deliveryPricePerKm: null,
+    deliveryMaxKm: null,
     status: "active",
     createdAt: new Date(),
   };

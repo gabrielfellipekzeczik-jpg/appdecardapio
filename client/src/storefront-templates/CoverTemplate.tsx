@@ -26,9 +26,14 @@ export function CoverTemplate(s: Storefront) {
   }, [dismissed]);
 
   const brand = company.primaryColor || "#c9a15a";
-  const heroPhoto = company.heroImageUrl || s.menu[0]?.image || DEFAULT_HERO_IMAGE;
+  const backdrop = company.heroImageUrl || DEFAULT_HERO_IMAGE;
 
-  return <div className="min-h-screen overflow-x-hidden bg-[#161009] text-[#f2e9dc]">
+  return <div className="isolate min-h-screen overflow-x-hidden bg-[#161009] text-[#f2e9dc]">
+    <div
+      aria-hidden="true"
+      className="fixed inset-0 -z-10"
+      style={{ backgroundImage: `linear-gradient(rgba(10,7,4,.5), rgba(10,7,4,.7)), url(${backdrop})`, backgroundSize: "cover", backgroundPosition: "center" }}
+    />
     {!dismissed && (
       <div
         className={`menu-cover-stage ${opening ? "is-dismissing" : ""}`}
@@ -60,7 +65,7 @@ export function CoverTemplate(s: Storefront) {
 
     <div className={`menu-reveal ${opening ? "" : "is-hidden"}`}>
       {/* Phones, tablets & narrower laptops: a single scrolling list. */}
-      <div className="xl:hidden">
+      <div className="bg-[#161009]/80 backdrop-blur-sm xl:hidden">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-[#161009]/90 backdrop-blur-xl">
           <div className="mx-auto flex h-[72px] max-w-3xl items-center justify-between px-5">
             <div className="flex min-w-0 items-center gap-3">
@@ -109,12 +114,8 @@ export function CoverTemplate(s: Storefront) {
 
       {/* Wide screens: the whole menu laid open at once — three equal panels, like a trifold spread flat on the table. */}
       <div className="relative hidden min-h-screen xl:block">
-        <div
-          className="absolute inset-0 -z-10"
-          style={{ backgroundImage: `linear-gradient(rgba(10,7,4,.72), rgba(10,7,4,.85)), url(${heroPhoto})`, backgroundSize: "cover", backgroundPosition: "center" }}
-        />
         <div className="mx-auto grid h-screen max-w-[1360px] grid-cols-3 items-center gap-6 px-8 py-8">
-          <CoverPanel company={company} brand={brand} heroPhoto={heroPhoto} />
+          <CoverPanel company={company} brand={brand} />
           <MenuPanel s={s} brand={brand} />
           <CartPanel s={s} brand={brand} />
         </div>
@@ -125,23 +126,20 @@ export function CoverTemplate(s: Storefront) {
   </div>;
 }
 
-const PANEL = "flex h-[min(82vh,760px)] min-w-0 flex-col overflow-hidden rounded-[2rem] bg-[#14100b] shadow-2xl ring-1 ring-white/10";
+const PANEL = "flex h-[min(82vh,760px)] min-w-0 flex-col overflow-hidden rounded-[2rem] bg-[#14100b]/90 shadow-2xl ring-1 ring-white/10 backdrop-blur-md";
 
-function CoverPanel({ company, brand, heroPhoto }: { company: NonNullable<Storefront["company"]>; brand: string; heroPhoto: string }) {
+function CoverPanel({ company, brand }: { company: NonNullable<Storefront["company"]>; brand: string }) {
   return (
     <div className={PANEL}>
-      <div className="flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 text-center">
         {company.logoUrl
-          ? <img src={company.logoUrl} alt={company.name} className="h-16 w-16 rounded-full border object-cover" style={{ borderColor: `${brand}55` }} />
-          : <div className="flex h-16 w-16 items-center justify-center rounded-full border" style={{ borderColor: `${brand}55`, color: brand }}><UtensilsCrossed className="h-6 w-6" /></div>}
+          ? <img src={company.logoUrl} alt={company.name} className="h-56 w-56 rounded-full border object-cover shadow-2xl" style={{ borderColor: `${brand}55` }} />
+          : <div className="flex h-56 w-56 items-center justify-center rounded-full border font-display text-8xl font-bold" style={{ borderColor: `${brand}55`, color: brand }}>{company.name.trim().charAt(0).toUpperCase()}</div>}
         <div>
-          <h1 className="font-display text-2xl font-bold leading-tight text-[#f6ecd9]">{company.name}</h1>
+          <h1 className="font-display text-3xl font-bold leading-tight text-[#f6ecd9]">{company.name}</h1>
           <div className="mx-auto mt-3 h-px w-10" style={{ backgroundColor: brand }} />
           {company.tagline && <p className="mx-auto mt-3 max-w-[24ch] text-xs uppercase tracking-[0.15em] text-[#b3a793]">{company.tagline}</p>}
         </div>
-      </div>
-      <div className="h-52 shrink-0">
-        <img src={heroPhoto} alt="" className="h-full w-full object-cover" />
       </div>
       <div className="p-6">
         <div className="flex items-center justify-center gap-2 rounded-full py-3 text-xs font-bold uppercase tracking-wide text-[#211a13]" style={{ backgroundColor: brand }}>
