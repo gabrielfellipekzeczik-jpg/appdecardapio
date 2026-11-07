@@ -141,12 +141,6 @@ function CoverPanel({ company, brand }: { company: NonNullable<Storefront["compa
           {company.tagline && <p className="mx-auto mt-3 max-w-[24ch] text-xs uppercase tracking-[0.15em] text-[#b3a793]">{company.tagline}</p>}
         </div>
       </div>
-      <div className="p-6">
-        <div className="flex items-center justify-center gap-2 rounded-full py-3 text-xs font-bold uppercase tracking-wide text-[#211a13]" style={{ backgroundColor: brand }}>
-          Cardápio ao lado <ArrowRight className="h-4 w-4" />
-        </div>
-        {company.pickupAddress && <p className="mt-3 text-center text-[11px] text-[#8a7f6f]">Retirada em {company.pickupAddress}</p>}
-      </div>
     </div>
   );
 }
