@@ -157,6 +157,16 @@ export function PendingPaymentPanel({
                 </span>
               </button>
             )}
+            {payment.ticketUrl && (
+              <a
+                href={payment.ticketUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-block text-xs font-semibold text-[#526d58] underline"
+              >
+                Abrir o pagamento no Mercado Pago
+              </a>
+            )}
             <p className="mt-4 flex items-center justify-center gap-2 text-xs text-[#788078]">
               <span className="h-2 w-2 animate-pulse rounded-full bg-[#d9a441]" />
               Aguardando pagamento. Esta tela atualiza sozinha.

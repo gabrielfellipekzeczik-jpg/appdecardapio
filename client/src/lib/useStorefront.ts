@@ -43,6 +43,7 @@ export type PendingPayment = {
   total: number;
   qrCode: string | null;
   copyPaste: string | null;
+  ticketUrl: string | null;
   expiresAt: number | null;
   fingerprint: string;
   customer: typeof EMPTY_CUSTOMER;
@@ -67,6 +68,8 @@ function readDraft(slug: string): {
   }
 }
 
+/** Tempo que a tela dá para pagar o Pix antes de oferecer um novo. */
+const PIX_WINDOW_MS = 30 * 60_000;
 const PENDING_PAYMENT_MAX_AGE = 6 * 60 * 60_000;
 const pendingPaymentKey = (slug: string) =>
   `marmitaria-pending-payment-${slug}`;
@@ -637,9 +640,9 @@ export function useStorefront(slug: string) {
         total,
         qrCode: qrCode ?? null,
         copyPaste: qrCopyPaste ?? null,
-        expiresAt: payment.date_of_expiration
-          ? new Date(payment.date_of_expiration).getTime()
-          : null,
+        ticketUrl:
+          payment.point_of_interaction?.transaction_data?.ticket_url ?? null,
+        expiresAt: isPix ? Date.now() + PIX_WINDOW_MS : null,
         fingerprint: orderFingerprintRef.current,
         customer,
         savedAt: Date.now(),

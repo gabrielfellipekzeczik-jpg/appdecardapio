@@ -1675,7 +1675,7 @@ async function getFinanceReport(companyId, from, to) {
     orders2 = await readPages(
       () => db.from("orders").select(
         "id,createdAt,paymentApprovedAt,paymentStatus,paymentMethod,total,platformFeeAmount"
-      ).eq("companyId", companyId).or(
+      ).eq("companyId", companyId).neq("status", "cancelled").or(
         `and(paymentStatus.eq.approved,paymentApprovedAt.gte.${start},paymentApprovedAt.lt.${end}),and(paymentStatus.eq.approved,paymentApprovedAt.is.null,createdAt.gte.${start},createdAt.lt.${end}),and(paymentStatus.eq.pending,createdAt.gte.${start},createdAt.lt.${end})`
       ).order("id", { ascending: true })
     );
@@ -1686,7 +1686,7 @@ async function getFinanceReport(companyId, from, to) {
     const legacyOrders = await readPages(
       () => db.from("orders").select(
         "id,createdAt,paymentStatus,paymentMethod,total,platformFeeAmount"
-      ).eq("companyId", companyId).in("paymentStatus", ["approved", "pending"]).gte("createdAt", start).lt("createdAt", end).order("id", { ascending: true })
+      ).eq("companyId", companyId).neq("status", "cancelled").in("paymentStatus", ["approved", "pending"]).gte("createdAt", start).lt("createdAt", end).order("id", { ascending: true })
     );
     orders2 = legacyOrders.map((order) => ({ ...order, paymentApprovedAt: null }));
   }
@@ -2395,14 +2395,11 @@ function buildPayerDetails(input) {
     }
   };
 }
+function payerFieldsFor(input) {
+  return input.paymentMethodId === "pix" ? { payer: { email: input.payer.email } } : buildPayerDetails(input);
+}
 function computeApplicationFee(transactionAmount) {
   return Math.round(transactionAmount * (ENV.platformFeePercent / 100) * 100) / 100;
-}
-var PIX_EXPIRATION_MINUTES = 30;
-function pixExpirationDate(now2 = /* @__PURE__ */ new Date()) {
-  const expiresAt = now2.getTime() + PIX_EXPIRATION_MINUTES * 6e4;
-  const brasilia = new Date(expiresAt - 3 * 60 * 6e4);
-  return `${brasilia.toISOString().slice(0, 23)}-03:00`;
 }
 async function createPayment(input) {
   const credentials = await getConnectedCredentials(input.companyId);
@@ -2416,9 +2413,8 @@ async function createPayment(input) {
     token: input.token,
     installments: input.installments ?? 1,
     issuer_id: input.issuerId,
-    ...buildPayerDetails(input),
+    ...payerFieldsFor(input),
     external_reference: String(input.orderId),
-    ...input.paymentMethodId === "pix" ? { date_of_expiration: pixExpirationDate() } : {},
     notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : void 0
   };
   const idempotencySuffix = Math.random().toString(36).slice(2, 10);
@@ -3396,6 +3392,21 @@ var appRouter = router({
         input.phone,
         requireCustomerAccessToken(ctx.req)
       );
+    }),
+    // Exclusão lógica: some da cozinha e do financeiro, mas o registro fica para
+    // o cliente ver o cancelamento e para conferir um pagamento que precise de estorno.
+    remove: companyAdminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const result = await advanceOrderStatus(
+        ctx.companyId,
+        input.id,
+        "cancelled"
+      );
+      if (!result.persisted)
+        throw new TRPCError2({
+          code: "NOT_FOUND",
+          message: "Pedido n\xE3o encontrado."
+        });
+      return { removed: true };
     }),
     advanceStatus: companyAdminProcedure.input(
       z2.object({

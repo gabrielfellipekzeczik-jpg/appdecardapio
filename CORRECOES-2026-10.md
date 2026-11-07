@@ -63,5 +63,5 @@ Antes de publicar, aplique no schema `marmitaria`, em ordem, `drizzle/0008_store
 - Limites: 8 pedidos a cada 10 minutos por IP e 5 pedidos sem pagamento por telefone em 1 hora.
 - Em Painel > Aparência a loja define horário de funcionamento, pagamento na entrega e retirada. Dinheiro e retirada começam desligados. Fora do horário o servidor recusa pedidos.
 - Pedidos online só aparecem na cozinha depois de pagos. Pedidos pagos na entrega entram direto, depois da confirmação do e-mail.
-- O Pix expira em 30 minutos, e o cliente pode trocar a forma de pagamento. O servidor confere o Mercado Pago antes de cancelar.
+- A tela do Pix oferece um novo pagamento depois de 30 minutos, e o cliente pode trocar a forma de pagamento. O servidor confere o Mercado Pago antes de cancelar.
 - Busca de endereço por CEP usa ViaCEP.

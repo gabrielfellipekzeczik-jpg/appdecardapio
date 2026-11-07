@@ -1461,6 +1461,7 @@ export async function getFinanceReport(
           "id,createdAt,paymentApprovedAt,paymentStatus,paymentMethod,total,platformFeeAmount"
         )
         .eq("companyId", companyId)
+        .neq("status", "cancelled")
         .or(
           `and(paymentStatus.eq.approved,paymentApprovedAt.gte.${start},paymentApprovedAt.lt.${end}),and(paymentStatus.eq.approved,paymentApprovedAt.is.null,createdAt.gte.${start},createdAt.lt.${end}),and(paymentStatus.eq.pending,createdAt.gte.${start},createdAt.lt.${end})`
         )
@@ -1482,6 +1483,7 @@ export async function getFinanceReport(
           "id,createdAt,paymentStatus,paymentMethod,total,platformFeeAmount"
         )
         .eq("companyId", companyId)
+        .neq("status", "cancelled")
         .in("paymentStatus", ["approved", "pending"])
         .gte("createdAt", start)
         .lt("createdAt", end)
@@ -1547,7 +1549,7 @@ export type OrderStatus = (typeof ORDER_STATUS_FLOW)[number];
 export async function advanceOrderStatus(
   companyId: number,
   orderId: number,
-  status: OrderStatus
+  status: OrderStatus | "cancelled"
 ) {
   if (isTestMode()) return testAdvanceOrderStatus(orderId, status);
   const db = getDb();

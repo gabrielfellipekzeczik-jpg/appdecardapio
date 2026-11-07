@@ -1,124 +1,234 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Link, useParams } from "wouter";
-import { ArrowDownRight, ArrowUpRight, Bell, Check, ChefHat, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Download, Ellipsis, Leaf, LogOut, MessageCircle, Package, Palette, Plus, Search, Settings2, ShoppingCart, Truck, Utensils, WalletCards, Copy, ExternalLink, Link2 } from "lucide-react";
+import {
+  ChefHat,
+  ClipboardList,
+  Copy,
+  LogOut,
+  MessageCircle,
+  Package,
+  Palette,
+  Plug,
+  Settings2,
+  Utensils,
+  WalletCards,
+} from "lucide-react";
 import { AppearancePanel } from "@/components/AppearancePanel";
 import { MenuManager } from "@/components/MenuManager";
-import { ManualOrderDialog } from "@/components/ManualOrderDialog";
 import { FinanceDashboard } from "@/components/FinanceDashboard";
 import { InventoryManager } from "@/components/InventoryManager";
+import { KitchenBoard } from "@/components/KitchenBoard";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { trpc } from "@/lib/trpc";
 import { usePageTitle } from "@/lib/usePageTitle";
-import { findNewOrderIds } from "@shared/order-alerts";
-import { isPickupOrder } from "@shared/store-rules";
-import { isDemoDataViewer } from "@shared/const";
+import { trpc } from "@/lib/trpc";
 
-type KitchenOrder = { id: string; orderId?: number; pickup?: boolean; paymentStatus?: string; paymentMethod?: string | null; customer: string; items: string; total: string; time: string; status: string; method: string };
-
-const initialOrders: KitchenOrder[] = [
-  { id: "#1048", customer: "Mariana Costa", items: "2× Caseira da semana · 1× Suco natural", total: "R$ 61,70", time: "há 4 min", status: "received", method: "Pix" },
-  { id: "#1047", customer: "João Pedro", items: "1× Bife acebolado · 1× Pudim da casa", total: "R$ 34,80", time: "há 12 min", status: "preparing", method: "Cartão" },
-  { id: "#1046", customer: "Ana Beatriz", items: "1× Bowl da horta", total: "R$ 31,80", time: "há 21 min", status: "ready", method: "Pix" },
-  { id: "#1045", customer: "Rafael Lima", items: "3× Caseira da semana", total: "R$ 80,60", time: "há 35 min", status: "delivered", method: "Pix" },
-];
-const TAB_INFO: Record<string, { title: string; subtitle: string }> = {
-  overview: { title: "Resumo da operação", subtitle: "Acompanhe o que está acontecendo na sua cozinha hoje." },
-  orders: { title: "Pedidos", subtitle: "Atualize os status conforme a cozinha avança." },
-  menu: { title: "Cardápio", subtitle: "Cadastre e organize o que você vende." },
-  inventory: { title: "Estoque e produção", subtitle: "O que você tem, o que vai fazer e o que falta comprar." },
-  finance: { title: "Financeiro", subtitle: "Receitas, despesas e margem do negócio." },
-  appearance: { title: "Aparência", subtitle: "Logo, cores e o visual da sua página." },
-};
-// Navegação em telas pequenas (no computador o menu lateral já faz isso).
-const MOBILE_TABS: Array<[string, string]> = [["overview", "Resumo"], ["orders", "Pedidos"], ["menu", "Cardápio"], ["inventory", "Estoque e produção"], ["finance", "Financeiro"], ["appearance", "Aparência"]];
-const statusLabels: Record<string, string> = { received: "Recebido", preparing: "Em preparo", ready: "Aguardando entrega", out_for_delivery: "Saiu para entrega", delivered: "Entregue" };
-const statusColors: Record<string, string> = { received: "bg-[#fff0d7] text-[#a05c32]", preparing: "bg-[#e7eff9] text-[#42648a]", ready: "bg-[#e2f1e7] text-[#347052]", out_for_delivery: "bg-[#f1e9fb] text-[#6b4fa0]", delivered: "bg-[#efede8] text-[#776e63]" };
+const TABS = [
+  { key: "kitchen", label: "Cozinha", icon: ChefHat, title: "Cozinha", subtitle: "Arraste os pedidos entre as colunas conforme avançam." },
+  { key: "menu", label: "Cardápio", icon: Utensils, title: "Cardápio", subtitle: "Cadastre e organize o que você vende." },
+  { key: "inventory", label: "Estoque e produção", icon: Package, title: "Estoque e produção", subtitle: "O que você tem, o que vai fazer e o que falta comprar." },
+  { key: "finance", label: "Financeiro", icon: WalletCards, title: "Financeiro", subtitle: "Quanto entrou, quanto saiu e o que mais vende." },
+] as const;
+type TabKey = (typeof TABS)[number]["key"] | "appearance";
 
 export default function Admin() {
   const { slug = "" } = useParams<{ slug: string }>();
   const { user, loading, isAuthenticated } = useAuth();
-  const companyQuery = trpc.company.mine.useQuery(undefined, { enabled: isAuthenticated });
+  const companyQuery = trpc.company.mine.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
   usePageTitle(companyQuery.data?.name && `Painel · ${companyQuery.data.name}`);
-  const storefrontUrl = typeof window !== "undefined" ? `${window.location.origin}/${slug}` : `/${slug}`;
+  const [tab, setTab] = useState<TabKey>("kitchen");
+  const storefrontUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/${slug}`
+      : `/${slug}`;
   const shareWhatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${companyQuery.data?.name ?? "Confira nosso cardápio"}: ${storefrontUrl}`)}`;
-  // Dados de exemplo (pedidos, estoque, financeiro, gráficos) só para a conta de demonstração.
-  // Todas as outras contas começam vazias e veem apenas dados reais.
-  const showDemo = isDemoDataViewer(user?.email);
-  const [orders, setOrders] = useState<KitchenOrder[]>([]);
-  useEffect(() => {
-    if (!showDemo) return;
-    try { setOrders((current) => current.length ? current : ((JSON.parse(localStorage.getItem("marmitaria-admin-orders") || "null") as KitchenOrder[] | null) || initialOrders)); } catch { setOrders(initialOrders); }
-  }, [showDemo]);
-  useEffect(() => { if (showDemo && orders.length) localStorage.setItem("marmitaria-admin-orders", JSON.stringify(orders)); }, [orders, showDemo]);
-  const recentOrdersQuery = trpc.orders.recent.useQuery({ limit: 20 }, { staleTime: 15_000, refetchInterval: 15_000 });
-  const dashboardSummaryQuery = trpc.dashboard.summary.useQuery(undefined, { staleTime: 30_000, refetchInterval: 30_000 });
-  const dashboardSummary = dashboardSummaryQuery.data;
-  const revenueValue = dashboardSummary?.revenue ? `R$ ${dashboardSummary.revenue.toFixed(2).replace(".", ",")}` : "R$ 0,00";
-  const ordersValue = dashboardSummary?.orders ? String(dashboardSummary.orders) : "0";
-  const ticketValue = dashboardSummary?.averageTicket ? `R$ ${dashboardSummary.averageTicket.toFixed(2).replace(".", ",")}` : "R$ 0,00";
-  const seenOrderIds = useRef<number[]>([]);
-  const advanceStatusMutation = trpc.orders.advanceStatus.useMutation();
-  const markCashReceivedMutation = trpc.orders.markCashReceived.useMutation();
-  useEffect(() => {
-    const currentIds = recentOrdersQuery.data?.map(({ order }) => order.id) ?? [];
-    const newIds = findNewOrderIds(seenOrderIds.current, currentIds);
-    if (recentOrdersQuery.data?.length) {
-      setOrders(recentOrdersQuery.data.map(({ order, customer }) => ({ id: `#${order.id}`, orderId: order.id, pickup: isPickupOrder(order), paymentStatus: order.paymentStatus, paymentMethod: order.paymentMethod, customer: customer?.name || "Cliente", items: "Pedido recebido pelo cardápio", total: `R$ ${Number(order.total).toFixed(2).replace(".", ",")}`, time: new Date(order.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), status: order.status, method: order.paymentMethod === "cash_on_delivery" ? "Dinheiro na entrega" : order.paymentMethod === "mercadopago_link" ? "Link Mercado Pago" : order.paymentMethod === "mercadopago" ? "Mercado Pago" : order.paymentMethod || "Aguardando pagamento" })));
-    }
-    if (seenOrderIds.current.length > 0 && newIds.length > 0) {
-      toast.info("Novo pedido recebido", { description: "A fila da cozinha foi atualizada." });
-      try { const audio = new AudioContext(); const oscillator = audio.createOscillator(); const gain = audio.createGain(); oscillator.frequency.value = 660; gain.gain.value = 0.035; oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(); oscillator.stop(audio.currentTime + 0.12); } catch { /* áudio pode ser bloqueado até interação do usuário */ }
-    }
-    seenOrderIds.current = currentIds;
-  }, [recentOrdersQuery.data]);
-  const [tab, setTab] = useState("overview");
-  const [search, setSearch] = useState("");
-  const inProgress = useMemo(() => orders.filter((order) => order.status !== "delivered").length, [orders]);
-  const filtered = useMemo(() => orders.filter((order) => `${order.id} ${order.customer} ${order.items}`.toLowerCase().includes(search.toLowerCase())), [orders, search]);
-  if (loading) return <div className="min-h-screen bg-[#f7f6f2] p-8"><div className="mx-auto max-w-5xl animate-pulse rounded-3xl bg-white p-12"><div className="h-8 w-64 rounded bg-[#eeeae3]"/><div className="mt-6 h-32 rounded-2xl bg-[#f1ece3]"/></div></div>;
-  if (!isAuthenticated || user?.role !== "admin") return <div className="flex min-h-screen items-center justify-center bg-[#f7f6f2] px-6"><Card className="max-w-md border-0 text-center shadow-xl"><CardContent className="p-8"><ClipboardList className="mx-auto h-10 w-10 text-[#a05c32]"/><h1 className="mt-4 font-display text-2xl font-bold">Área da operação</h1><p className="mt-2 text-sm leading-6 text-[#776e63]">Entre com uma conta autorizada da loja para acessar pedidos, estoque e financeiro.</p><div className="mt-5 flex flex-col items-center gap-2"><Link href="/admin-login"><Button className="rounded-xl bg-[#2f5d50] text-white">Entrar</Button></Link><Link href={`/${slug}`}><Button variant="outline" className="rounded-xl border-[#e5e0d7]">Voltar ao cardápio</Button></Link></div></CardContent></Card></div>;
+
+  if (loading)
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] p-8">
+        <div className="mx-auto max-w-5xl animate-pulse rounded-3xl bg-white p-12">
+          <div className="h-8 w-64 rounded bg-[#eeeae3]" />
+          <div className="mt-6 h-32 rounded-2xl bg-[#f1ece3]" />
+        </div>
+      </div>
+    );
+  if (!isAuthenticated || user?.role !== "admin")
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f6f2] px-6">
+        <Card className="max-w-md border-0 text-center shadow-xl">
+          <CardContent className="p-8">
+            <ClipboardList className="mx-auto h-10 w-10 text-[#a05c32]" />
+            <h1 className="mt-4 font-display text-2xl font-bold">
+              Área da operação
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-[#776e63]">
+              Entre com uma conta autorizada da loja para acessar pedidos,
+              estoque e financeiro.
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <Link href="/admin-login">
+                <Button className="w-full rounded-xl bg-[#2f5d50] text-white">
+                  Entrar
+                </Button>
+              </Link>
+              <Link href={`/${slug}`}>
+                <Button variant="ghost" className="w-full rounded-xl">
+                  Voltar ao cardápio
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(storefrontUrl);
+      toast.success("Link copiado!");
     } catch {
-      // Navegadores sem permissão de área de transferência (ou sem HTTPS): cópia pelo método antigo.
-      const field = document.createElement("textarea");
-      field.value = storefrontUrl; field.style.position = "fixed"; field.style.opacity = "0";
-      document.body.appendChild(field); field.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(field);
-      if (!ok) return void toast.error("Não foi possível copiar. Selecione o link e copie manualmente.");
+      toast.error("Não foi possível copiar. O link é " + storefrontUrl);
     }
-    toast.success("Link copiado!");
   };
-  const advance = (id: string, direction: 1 | -1 = 1) => {
-    setOrders((current) => current.map((order) => {
-      if (order.id !== id) return order;
-      const flow = order.pickup ? ["received", "preparing", "ready", "delivered"] : ["received", "preparing", "ready", "out_for_delivery", "delivered"];
-      const index = Math.max(0, flow.indexOf(order.status));
-      const next = flow[Math.max(0, Math.min(index + direction, flow.length - 1))];
-      if (next === order.status) return order;
-      toast.success(`${order.id} atualizado para ${statusLabels[next]}`);
-      const numericId = Number(id.replace("#", ""));
-      if (Number.isFinite(numericId)) advanceStatusMutation.mutate({ id: numericId, status: next as "received" | "preparing" | "ready" | "out_for_delivery" | "delivered" }, { onSuccess: (result) => {
-        if (result.delivery?.provider === "own_courier" && "driverToken" in result.delivery && result.delivery.driverToken) {
-          const link = `${window.location.origin}/entregador/${result.delivery.driverToken}`;
-          navigator.clipboard?.writeText(link).then(() => toast.success("Link privado do motoboy copiado", { description: "Envie-o ao entregador para iniciar o GPS." })).catch(() => window.prompt("Copie o link privado do motoboy:", link));
-        }
-        recentOrdersQuery.refetch();
-      }, onError: (error) => { toast.error(error.message); void recentOrdersQuery.refetch(); } });
-      return { ...order, status: next };
-    }));
+  const current = TABS.find(entry => entry.key === tab);
+  const heading = current ?? {
+    title: "Aparência",
+    subtitle: "Logo, cores, horários e o visual da sua página.",
   };
 
-  return <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">{showDemo && <div role="status" className="fixed bottom-3 left-3 z-50 rounded-lg bg-amber-100 px-4 py-2 text-xs font-semibold text-amber-900 shadow">Modo demonstração: dados ilustrativos, não são registros reais.</div>}<aside className="admin-sidebar hidden lg:flex"><div className="flex items-center gap-3 px-2"><div className="brand-mark"><Utensils className="h-5 w-5"/></div><div><p className="font-display text-lg font-bold leading-none text-white">{companyQuery.data?.name ?? "Sua loja"}</p><p className="mt-1 text-[9px] uppercase tracking-[0.2em] text-white/45">painel de gestão</p></div></div><div className="mt-12 space-y-1"><p className="admin-nav-label">Visão geral</p>{[["overview", CircleDollarSign, "Resumo"], ["orders", ClipboardList, "Pedidos"], ["menu", Utensils, "Cardápio"], ["inventory", Package, "Estoque e produção"], ["finance", WalletCards, "Financeiro"], ["appearance", Palette, "Aparência"]].map(([value, Icon, label]) => <button key={value as string} onClick={() => setTab(value as string)} className={`admin-nav-item ${tab === value ? "active" : ""}`}><Icon className="h-4 w-4"/>{label as string}{value === "orders" && inProgress > 0 && <span className="ml-auto rounded-full bg-[#a05c32] px-1.5 text-[10px] text-white">{inProgress}</span>}</button>)}<Link href={`/${slug}/cozinha`}><button className="admin-nav-item"><ChefHat className="h-4 w-4"/>Cozinha</button></Link><Link href={`/${slug}/admin/integracoes`}><button className="admin-nav-item"><Settings2 className="h-4 w-4"/>Integrações</button></Link></div><div className="mt-auto space-y-1">{user.isSuperAdmin && <Link href="/super-admin"><button className="admin-nav-item"><Settings2 className="h-4 w-4"/>Super Admin</button></Link>}<Link href={`/${slug}`}><button className="admin-nav-item"><LogOut className="h-4 w-4"/>Voltar ao cardápio</button></Link></div></aside><div className="lg:pl-[252px]"><header className="flex h-[76px] items-center justify-between border-b border-[#e5e0d7] bg-[#f7f6f2]/85 px-5 backdrop-blur-lg lg:px-9"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#a05c32]">Painel de pedidos</p><h1 className="mt-1 font-display text-2xl font-bold">{companyQuery.data?.name ?? "Bom dia"} <span className="text-[#a05c32]">.</span></h1></div><div className="flex items-center gap-3"><Button variant="outline" onClick={copyLink} className="rounded-xl border-[#e5e0d7] bg-white"><Copy className="h-4 w-4 sm:mr-2"/><span className="hidden sm:inline">Copiar link</span></Button><a href={shareWhatsappUrl} target="_blank" rel="noreferrer"><Button variant="outline" className="rounded-xl border-[#e5e0d7] bg-white"><MessageCircle className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">Compartilhar no WhatsApp</span></Button></a><button className="relative rounded-full bg-white p-2.5 shadow-sm ring-1 ring-[#e5e0d7]"><Bell className="h-4 w-4 text-[#776e63]"/><span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#a05c32]"/></button></div></header><main className="max-w-[1500px] p-5 lg:p-9"><nav aria-label="Seções do painel" className="-mx-5 mb-6 flex gap-2 overflow-x-auto px-5 pb-1 lg:hidden">{MOBILE_TABS.map(([value, label]) => <button key={value} onClick={() => setTab(value)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${tab === value ? "bg-[#2f5d50] text-white" : "bg-[#ebe8e1] text-[#5d554b]"}`}>{label}</button>)}<Link href={`/${slug}/cozinha`}><button className="shrink-0 rounded-full bg-[#ebe8e1] px-4 py-2 text-sm font-medium text-[#5d554b]">Cozinha</button></Link><Link href={`/${slug}/admin/integracoes`}><button className="shrink-0 rounded-full bg-[#ebe8e1] px-4 py-2 text-sm font-medium text-[#5d554b]">Integrações</button></Link></nav><div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><h2 className="font-display text-3xl font-bold tracking-tight">{TAB_INFO[tab]?.title}</h2><p className="mt-1 text-[#776e63]">{TAB_INFO[tab]?.subtitle}</p></div>{(tab === "overview" || tab === "orders") && <ManualOrderDialog slug={slug} onCreated={() => { void recentOrdersQuery.refetch(); void dashboardSummaryQuery.refetch(); }}/>}</div>{tab === "overview" && <Card className="mb-6 border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 items-center gap-3"><div className="metric-icon"><Link2 className="h-4 w-4"/></div><div className="min-w-0"><p className="text-sm font-semibold">Link do seu cardápio</p><p className="select-all truncate text-sm text-[#776e63]">{storefrontUrl}</p><p className="mt-0.5 text-xs text-[#a79b8d]">Envie para seus clientes ou coloque na bio do Instagram.</p></div></div><div className="flex gap-2"><Button onClick={copyLink} className="rounded-xl bg-[#2f5d50] text-white hover:bg-[#254a40]"><Copy className="mr-2 h-4 w-4"/>Copiar link</Button><a href={storefrontUrl} target="_blank" rel="noreferrer"><Button variant="outline" className="rounded-xl border-[#e5e0d7]"><ExternalLink className="mr-2 h-4 w-4"/>Abrir</Button></a></div></CardContent></Card>}{tab === "overview" && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={CircleDollarSign} label="Faturamento aprovado" value={revenueValue} delta="dados reais" positive detail="pedidos com pagamento aprovado"/><Metric icon={ClipboardList} label="Pedidos aprovados" value={ordersValue} delta="dados reais" positive detail="pedidos no período"/><Metric icon={ShoppingCart} label="Ticket médio" value={ticketValue} delta="dados reais" positive detail="faturamento por pedido"/><Metric icon={Truck} label="Em andamento" value={showDemo ? "07" : String(inProgress).padStart(2, "0")} delta={showDemo ? "2" : ""} positive={false} detail="aguardando produção"/></div>}<Tabs value={tab} onValueChange={setTab} className={tab === "overview" ? "mt-8" : "mt-0"}><TabsContent value="overview" className="mt-0"><div className={`grid gap-5 ${showDemo ? "xl:grid-cols-[1.35fr_0.65fr]" : ""}`}><Card className="border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]"><CardHeader className="flex flex-row items-start justify-between"><div><CardTitle className="font-display text-xl">Pedidos em andamento</CardTitle><p className="mt-1 text-sm text-[#776e63]">Acompanhe cada pedido até a saída.</p></div><Button variant="ghost" onClick={() => setTab("orders")} className="text-[#a05c32]">Ver todos <ChevronRight className="ml-1 h-4 w-4"/></Button></CardHeader><CardContent className="space-y-3">{filtered.length === 0 && <p className="rounded-xl border border-dashed border-[#e5e0d7] p-6 text-center text-sm text-[#776e63]">Nenhum pedido por enquanto. Quando alguém pedir pelo seu cardápio, ele aparece aqui.</p>}{filtered.map((order) => <div key={order.id} className="group flex flex-col gap-3 rounded-2xl border border-[#eeeae3] p-4 transition hover:border-[#d9c9b7] sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 items-center gap-3"><div className={`order-icon ${order.status === "ready" ? "ready" : ""}`}><ClipboardList className="h-4 w-4"/></div><div className="min-w-0"><div className="flex items-center gap-2"><p className="font-semibold">{order.id}</p><span className="text-sm text-[#776e63]">{order.customer}</span></div><p className="mt-1 truncate text-xs text-[#9a9185]">{order.items}</p></div></div><div className="flex items-center justify-between gap-4 sm:justify-end"><div className="text-right"><p className="font-semibold">{order.total}</p><p className="text-xs text-[#9a9185]">{order.time} · {order.method}</p></div><Badge className={`border-0 ${statusColors[order.status]}`}>{statusLabels[order.status]}</Badge><button onClick={() => advance(order.id, -1)} className="rounded-lg p-2 text-[#a79b8d] opacity-0 transition group-hover:opacity-100 hover:bg-[#f1ece3] hover:text-[#a05c32]" title="Voltar status"><ChevronLeft className="h-4 w-4"/></button><button onClick={() => advance(order.id)} className="rounded-lg p-2 text-[#a79b8d] opacity-0 transition group-hover:opacity-100 hover:bg-[#f1ece3] hover:text-[#a05c32]" title="Avançar status"><ChevronRight className="h-4 w-4"/></button></div></div>)}</CardContent></Card>{showDemo && <div className="space-y-5"><Card className="border-0 bg-[#2f5d50] text-white shadow-[0_8px_35px_rgba(47,93,80,0.15)]"><CardContent className="p-6"><div className="flex items-start justify-between"><div><p className="text-sm text-white/65">Desempenho do mês</p><p className="mt-2 font-display text-3xl font-bold">R$ 28.490</p></div><div className="rounded-xl bg-white/10 p-2"><ArrowUpRight className="h-5 w-5 text-[#e8bd72]"/></div></div><div className="mt-6 flex items-center justify-between text-xs text-white/60"><span>Meta mensal</span><span>72%</span></div><Progress value={72} className="mt-2 h-2 bg-white/10 [&>div]:bg-[#e8bd72]"/><p className="mt-4 text-xs text-white/55">Faltam R$ 11.110 para atingir sua meta.</p></CardContent></Card><Card className="border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]"><CardHeader><CardTitle className="font-display text-xl">Estoque em atenção</CardTitle></CardHeader><CardContent className="space-y-4">{[["Arroz agulhinha", "8,4 kg", "15 kg", 56], ["Filé de frango", "3,2 kg", "10 kg", 32], ["Tomate italiano", "2,1 kg", "6 kg", 35]].map(([name, current, total, value]) => <div key={name as string}><div className="flex items-center justify-between text-sm"><span className="font-medium">{name as string}</span><span className="text-xs text-[#a05c32]">{current as string}</span></div><Progress value={value as number} className="mt-2 h-1.5 bg-[#f1ece3] [&>div]:bg-[#c98a54]"/><p className="mt-1 text-[11px] text-[#a79b8d]">mínimo recomendado: {total as string}</p></div>)}<Button variant="outline" onClick={() => setTab("inventory")} className="mt-1 w-full rounded-xl border-[#e5e0d7]">Ver estoque completo</Button></CardContent></Card></div>}</div>{showDemo && <Card className="mt-5 border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]"><CardHeader><div className="flex items-center justify-between"><div><CardTitle className="font-display text-xl">Vendas por período</CardTitle><p className="mt-1 text-sm text-[#776e63]">Receita dos últimos 7 dias.</p></div><Button variant="outline" className="rounded-xl border-[#e5e0d7] text-xs">Últimos 7 dias <ChevronRight className="ml-2 h-3 w-3"/></Button></div></CardHeader><CardContent><div className="flex h-40 items-end gap-3 sm:gap-7">{[["Qui", 45], ["Sex", 62], ["Sáb", 38], ["Dom", 75], ["Seg", 52], ["Ter", 68], ["Hoje", 86]].map(([day, value], index) => <div key={day as string} className="flex flex-1 flex-col items-center gap-2"><div className={`w-full max-w-12 rounded-t-lg ${index === 6 ? "bg-[#a05c32]" : "bg-[#dce8e0]"}`} style={{ height: `${value}%` }}/><span className={`text-[11px] ${index === 6 ? "font-semibold text-[#a05c32]" : "text-[#a79b8d]"}`}>{day as string}</span></div>)}</div></CardContent></Card>}</TabsContent><TabsContent value="orders" className="mt-0"><Card className="border-0 shadow-sm"><CardHeader><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><CardTitle className="font-display text-xl">Fila de pedidos</CardTitle><p className="mt-1 text-sm text-[#776e63]">Atualize os status conforme a cozinha avança.</p></div><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-[#a79b8d]"/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pedido ou cliente" className="w-full rounded-xl border-[#e5e0d7] pl-9 sm:w-64"/></div></div></CardHeader><CardContent className="space-y-3">{filtered.length === 0 && <p className="rounded-xl border border-dashed border-[#e5e0d7] p-6 text-center text-sm text-[#776e63]">Nenhum pedido por enquanto. Quando alguém pedir pelo seu cardápio, ele aparece aqui.</p>}{filtered.map((order) => <div key={order.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#eeeae3] p-4"><div><p className="font-semibold">{order.id} · {order.customer}</p><p className="mt-1 text-sm text-[#776e63]">{order.items}</p><p className="mt-1 text-xs text-[#879087]">{order.method}</p></div><div className="flex flex-wrap items-center gap-2"><Badge className={`border-0 ${statusColors[order.status]}`}>{statusLabels[order.status]}</Badge>{order.paymentStatus && <Badge className={`border-0 ${order.paymentStatus === "approved" ? "bg-[#e2f1e7] text-[#347052]" : "bg-[#fff0d7] text-[#a05c32]"}`}>{order.paymentStatus === "approved" ? "Pago" : order.paymentMethod === "cash_on_delivery" ? (order.pickup ? "Pagar na retirada" : "Pagar na entrega") : "Aguardando pagamento"}</Badge>}{order.pickup && <Badge className="border-0 bg-[#fff0d7] text-[#a05c32]">Retirada</Badge>}{order.orderId && order.paymentMethod === "cash_on_delivery" && order.paymentStatus !== "approved" && <Button size="sm" variant="outline" disabled={markCashReceivedMutation.isPending} onClick={async () => { try { await markCashReceivedMutation.mutateAsync({ orderId: order.orderId! }); toast.success("Pagamento registrado como recebido."); await recentOrdersQuery.refetch(); await dashboardSummaryQuery.refetch(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível atualizar o pagamento."); } }} className="rounded-lg border-[#d9e5db] text-[#38654b]">Marcar pagamento recebido</Button>}<Button onClick={() => advance(order.id, -1)} size="sm" variant="outline" disabled={order.status === "received"} title="Voltar ao status anterior" className="rounded-lg border-[#e5e0d7]"><ChevronLeft className="mr-1 h-4 w-4"/>Voltar</Button><Button onClick={() => advance(order.id)} size="sm" disabled={order.status === "delivered"} className="rounded-lg bg-[#2f5d50] text-white hover:bg-[#254a40]"><ChevronRight className="mr-1 h-4 w-4"/>Avançar</Button></div></div>)}</CardContent></Card></TabsContent><TabsContent value="menu" className="mt-0"><MenuManager /></TabsContent><TabsContent value="inventory" className="mt-0"><InventoryManager slug={slug} /></TabsContent><TabsContent value="finance" className="mt-0"><FinanceDashboard /></TabsContent><TabsContent value="appearance" className="mt-0"><AppearancePanel /></TabsContent></Tabs></main></div></div>;
+  return (
+    <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">
+      <aside className="admin-sidebar hidden lg:flex">
+        <div className="flex items-center gap-3 px-2">
+          <div className="brand-mark">
+            <Utensils className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="font-display text-lg font-bold leading-none text-white">
+              {companyQuery.data?.name ?? "Sua loja"}
+            </p>
+            <p className="mt-1 text-[9px] uppercase tracking-[0.2em] text-white/45">
+              painel de gestão
+            </p>
+          </div>
+        </div>
+        <div className="mt-12 space-y-1">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`admin-nav-item ${tab === key ? "active" : ""}`}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-auto space-y-1">
+          {user.isSuperAdmin && (
+            <Link href="/super-admin">
+              <button className="admin-nav-item">
+                <Settings2 className="h-4 w-4" />
+                Super Admin
+              </button>
+            </Link>
+          )}
+          <Link href={`/${slug}`}>
+            <button className="admin-nav-item">
+              <LogOut className="h-4 w-4" />
+              Voltar ao cardápio
+            </button>
+          </Link>
+        </div>
+      </aside>
+      <div className="lg:pl-[252px]">
+        <header className="flex min-h-[68px] items-center justify-between gap-3 border-b border-[#e5e0d7] bg-[#f7f6f2]/85 px-4 backdrop-blur-lg lg:px-9">
+          <p className="min-w-0 truncate font-display text-xl font-bold">
+            {companyQuery.data?.name ?? "Painel"}
+          </p>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={copyLink}
+              aria-label="Copiar link do cardápio"
+              title="Copiar link do cardápio"
+              className="rounded-xl border-[#e5e0d7] bg-white"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            <a
+              href={shareWhatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Compartilhar no WhatsApp"
+              title="Compartilhar no WhatsApp"
+            >
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-xl border-[#e5e0d7] bg-white"
+              >
+                <MessageCircle className="h-4 w-4" />
+              </Button>
+            </a>
+            <Button
+              variant="outline"
+              onClick={() => setTab("appearance")}
+              aria-pressed={tab === "appearance"}
+              aria-label="Aparência"
+              className="rounded-xl border-[#e5e0d7] bg-white px-3"
+            >
+              <Palette className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">Aparência</span>
+            </Button>
+            <Link href={`/${slug}/admin/integracoes`}>
+              <Button
+                variant="outline"
+                aria-label="Integrações"
+                className="rounded-xl border-[#e5e0d7] bg-white px-3"
+              >
+                <Plug className="h-4 w-4 md:mr-2" />
+                <span className="hidden md:inline">Integrações</span>
+              </Button>
+            </Link>
+          </div>
+        </header>
+        <main className="max-w-[1600px] p-4 lg:p-9">
+          <nav
+            aria-label="Seções do painel"
+            className="-mx-4 mb-5 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden"
+          >
+            {TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${tab === key ? "bg-[#2f5d50] text-white" : "bg-[#ebe8e1] text-[#5d554b]"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="mb-6">
+            <h2 className="font-display text-3xl font-bold tracking-tight">
+              {heading.title}
+            </h2>
+            <p className="mt-1 text-[#776e63]">{heading.subtitle}</p>
+          </div>
+          {/* A cozinha fica montada em todas as abas para o alerta de novo pedido continuar tocando. */}
+          <div hidden={tab !== "kitchen"}>
+            <KitchenBoard slug={slug} />
+          </div>
+          {tab === "menu" && <MenuManager />}
+          {tab === "inventory" && <InventoryManager slug={slug} />}
+          {tab === "finance" && <FinanceDashboard />}
+          {tab === "appearance" && <AppearancePanel />}
+        </main>
+      </div>
+    </div>
+  );
 }
-
-function Metric({ icon: Icon, label, value, delta, positive, detail }: { icon: any; label: string; value: string; delta: string; positive: boolean; detail: string }) { return <Card className="metric-card border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="metric-icon"><Icon className="h-4 w-4"/></div>{delta && <span className={`flex items-center text-xs font-semibold ${positive ? "text-[#347052]" : "text-[#a05c32]"}`}>{positive ? <ArrowUpRight className="h-3.5 w-3.5"/> : <ArrowDownRight className="h-3.5 w-3.5"/>}{delta}</span>}</div><p className="mt-5 text-sm text-[#776e63]">{label}</p><p className="mt-1 font-display text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-[#a79b8d]">{detail}</p></CardContent></Card>; }

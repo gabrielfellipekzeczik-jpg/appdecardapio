@@ -1,26 +1,18 @@
 import { useMemo, useState } from "react";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  Area,
-  AreaChart,
-} from "recharts";
-import {
   ArrowDownToLine,
   CalendarDays,
   Plus,
   RefreshCw,
   Wallet,
 } from "lucide-react";
+import {
+  BarList,
+  EXPENSE_COLOR,
+  REVENUE_COLOR,
+  TrendChart,
+  money,
+} from "@/components/FinanceCharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,10 +26,6 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-const money = (value: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
-    value
-  );
 const todayKey = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -50,16 +38,6 @@ const offsetKey = (days: number) => {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 };
-const colors = [
-  "#2f5d50",
-  "#a05c32",
-  "#d3a35c",
-  "#708aa1",
-  "#8a739c",
-  "#6d9c7d",
-  "#c57469",
-  "#a7ae69",
-];
 const categories = [
   "Ingredientes",
   "Embalagens",
@@ -192,18 +170,7 @@ export function FinanceDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#829083]">
-            BI financeiro
-          </p>
-          <h2 className="mt-1 font-display text-2xl font-bold text-[#28322a]">
-            Visão financeira
-          </h2>
-          <p className="mt-1 text-sm text-[#778078]">
-            Indicadores calculados dos pedidos e despesas salvos no app.
-          </p>
-        </div>
+      <div className="flex flex-col justify-end gap-4 xl:flex-row xl:items-end">
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Período do relatório"
@@ -320,253 +287,73 @@ export function FinanceDashboard() {
           )}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
-              title="Receita aprovada"
+              title="Entrou"
               value={money(data.summary.revenue)}
               detail={`${data.summary.approvedOrders} pedidos pagos`}
-              color="green"
             />
             <Metric
-              title="Despesas lançadas"
+              title="Saiu"
               value={money(data.summary.expenses)}
-              detail={`${data.recentExpenses.length} lançamento(s) recentes`}
-              color="orange"
+              detail="Despesas lançadas"
             />
             <Metric
-              title="Saldo operacional registrado"
+              title="Sobrou"
               value={money(data.summary.operatingBalance)}
-              detail={`${data.summary.marginPercent.toFixed(1)}% sobre receita aprovada`}
-              color={data.summary.operatingBalance >= 0 ? "green" : "red"}
+              detail={`${data.summary.marginPercent.toFixed(1).replace(".", ",")}% do que entrou`}
             />
             <Metric
-              title="Pendente de recebimento"
-              value={money(data.summary.pendingRevenue)}
-              detail={`${data.summary.pendingOrders} pedidos aguardando pagamento`}
-              color="blue"
+              title="Ticket médio"
+              value={money(data.summary.averageTicket)}
+              detail="Valor médio por pedido pago"
             />
           </div>
-          <p className="-mt-3 text-xs text-[#899188]">
-            Saldo = pagamentos aprovados menos despesas lançadas. Não representa
-            lucro contábil: custos não cadastrados, impostos e taxas do
-            adquirente podem não estar incluídos.
+          <p className="-mt-3 text-xs text-[#6f786f]">
+            "Sobrou" é o que entrou menos as despesas lançadas. Não é lucro
+            contábil: impostos, taxas e custos não lançados ficam de fora.
           </p>
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]">
-            <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
-              <CardHeader className="pb-1">
-                <CardTitle className="font-display text-lg">
-                  Receitas e despesas
-                </CardTitle>
-                <p className="text-xs text-[#879087]">
-                  Comparação {data.monthly ? "mensal" : "diária"} no período
-                </p>
-              </CardHeader>
-              <CardContent className="h-[310px] p-2 sm:p-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={data.timeline}
-                    margin={{ top: 12, right: 14, left: 0, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="revenueFill"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#2f5d50"
-                          stopOpacity={0.22}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="#2f5d50"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      stroke="#edf0eb"
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: "#879087", fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      minTickGap={20}
-                    />
-                    <YAxis
-                      tickFormatter={value => `R$${Number(value).toFixed(0)}`}
-                      tick={{ fill: "#879087", fontSize: 10 }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={58}
-                    />
-                    <Tooltip formatter={value => money(Number(value))} />
-                    <Legend />
-                    <Area
-                      type="monotone"
-                      dataKey="revenue"
-                      name="Receita"
-                      stroke="#2f5d50"
-                      fill="url(#revenueFill)"
-                      strokeWidth={2.5}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="expenses"
-                      name="Despesas"
-                      stroke="#a05c32"
-                      fill="#a05c3214"
-                      strokeWidth={2.2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-            <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
-              <CardHeader className="pb-1">
-                <CardTitle className="font-display text-lg">
-                  Despesas por categoria
-                </CardTitle>
-                <p className="text-xs text-[#879087]">
-                  Distribuição dos lançamentos no período
-                </p>
-              </CardHeader>
-              <CardContent className="h-[310px] p-2 sm:p-4">
-                {data.expenseCategories.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={data.expenseCategories}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={62}
-                        outerRadius={100}
-                        paddingAngle={3}
-                      >
-                        {data.expenseCategories.map((item, index) => (
-                          <Cell
-                            key={item.name}
-                            fill={colors[index % colors.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={value => money(Number(value))} />
-                      <Legend
-                        verticalAlign="bottom"
-                        height={46}
-                        wrapperStyle={{ fontSize: 11 }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart message="Nenhuma despesa lançada nesse período." />
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="font-display text-lg">
+                Receita e despesas {data.monthly ? "por mês" : "por dia"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TrendChart data={data.timeline} />
+            </CardContent>
+          </Card>
 
-          <div className="grid gap-5 xl:grid-cols-2">
-            <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
-              <CardHeader className="pb-1">
-                <CardTitle className="font-display text-lg">
-                  Receita por forma de pagamento
-                </CardTitle>
-                <p className="text-xs text-[#879087]">
-                  Somente pedidos com pagamento aprovado
-                </p>
-              </CardHeader>
-              <CardContent className="h-[280px] p-2 sm:p-4">
-                {data.paymentMethods.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={data.paymentMethods}
-                      margin={{ top: 8, right: 12, left: 0, bottom: 10 }}
-                    >
-                      <CartesianGrid
-                        stroke="#edf0eb"
-                        strokeDasharray="3 3"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: "#788278", fontSize: 10 }}
-                        interval={0}
-                        angle={-8}
-                        textAnchor="end"
-                        height={48}
-                      />
-                      <YAxis
-                        tickFormatter={value => `R$${Number(value).toFixed(0)}`}
-                        tick={{ fill: "#879087", fontSize: 10 }}
-                        width={58}
-                      />
-                      <Tooltip formatter={value => money(Number(value))} />
-                      <Bar
-                        dataKey="revenue"
-                        name="Receita"
-                        fill="#537b62"
-                        radius={[7, 7, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart message="Ainda não há pagamentos aprovados nesse período." />
-                )}
-              </CardContent>
-            </Card>
-            <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
-              <CardHeader className="pb-1">
-                <CardTitle className="font-display text-lg">
-                  Produtos mais vendidos
-                </CardTitle>
-                <p className="text-xs text-[#879087]">
-                  Pedidos pagos · valor vendido e unidades
-                </p>
-              </CardHeader>
-              <CardContent className="h-[280px] p-2 sm:p-4">
-                {data.topProducts.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={data.topProducts}
-                      layout="vertical"
-                      margin={{ top: 6, right: 18, left: 4, bottom: 0 }}
-                    >
-                      <CartesianGrid
-                        stroke="#edf0eb"
-                        strokeDasharray="3 3"
-                        horizontal={false}
-                      />
-                      <XAxis
-                        type="number"
-                        tickFormatter={value => `R$${Number(value).toFixed(0)}`}
-                        tick={{ fill: "#879087", fontSize: 10 }}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        width={130}
-                        tick={{ fill: "#657066", fontSize: 10 }}
-                        interval={0}
-                      />
-                      <Tooltip formatter={value => money(Number(value))} />
-                      <Bar
-                        dataKey="revenue"
-                        name="Vendido"
-                        fill="#d3a35c"
-                        radius={[0, 7, 7, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart message="Nenhum produto pago no período." />
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid gap-5 lg:grid-cols-3">
+            <ChartCard title="O que mais vende">
+              <BarList
+                items={data.topProducts.map(item => ({
+                  name: item.name,
+                  value: item.revenue,
+                }))}
+                color={REVENUE_COLOR}
+                emptyMessage="Nenhum produto pago no período."
+              />
+            </ChartCard>
+            <ChartCard title="Como os clientes pagam">
+              <BarList
+                items={data.paymentMethods.map(item => ({
+                  name: item.name,
+                  value: item.revenue,
+                }))}
+                color={REVENUE_COLOR}
+                emptyMessage="Ainda não há pagamentos aprovados no período."
+              />
+            </ChartCard>
+            <ChartCard title="Para onde vai o dinheiro">
+              <BarList
+                items={data.expenseCategories.map(item => ({
+                  name: item.name,
+                  value: item.value,
+                }))}
+                color={EXPENSE_COLOR}
+                emptyMessage="Nenhuma despesa lançada no período."
+              />
+            </ChartCard>
           </div>
 
           <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
@@ -754,40 +541,37 @@ function Metric({
   title,
   value,
   detail,
-  color,
 }: {
   title: string;
   value: string;
   detail: string;
-  color: string;
 }) {
-  const tones: Record<string, string> = {
-    green: "bg-[#edf4ed] text-[#2f5d50]",
-    orange: "bg-[#fbf1e8] text-[#a05c32]",
-    blue: "bg-[#eef4f8] text-[#4f728d]",
-    red: "bg-[#fbefed] text-[#a8493d]",
-  };
   return (
     <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
       <CardContent className="p-5">
-        <div
-          className={`grid h-10 w-10 place-items-center rounded-2xl ${tones[color] ?? tones.green}`}
-        >
-          <Wallet className="h-5 w-5" />
-        </div>
-        <p className="mt-4 text-sm text-[#778078]">{title}</p>
-        <p className="mt-1 font-display text-2xl font-bold text-[#2c352d]">
+        <p className="text-sm text-[#6f786f]">{title}</p>
+        <p className="mt-1 font-display text-3xl font-bold tracking-tight text-[#2c352d]">
           {value}
         </p>
-        <p className="mt-1 text-xs text-[#8b948b]">{detail}</p>
+        <p className="mt-1 text-xs text-[#6f786f]">{detail}</p>
       </CardContent>
     </Card>
   );
 }
-function EmptyChart({ message }: { message: string }) {
+
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#899188]">
-      {message}
-    </div>
+    <Card className="rounded-2xl border-[#e7ebe5] shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="font-display text-lg">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }

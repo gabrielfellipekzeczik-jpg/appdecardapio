@@ -24,7 +24,7 @@ vi.mock("./notifications", async importOriginal => ({
 import { appRouter } from "./routers";
 import {
   buildPayerDetails,
-  pixExpirationDate,
+  payerFieldsFor,
 } from "./integrations/mercadoPago";
 import { clientIp, createRateLimiter } from "./_core/rateLimit";
 import {
@@ -162,10 +162,15 @@ describe("cancelPending", () => {
 });
 
 describe("regras de pagamento", () => {
-  it("define a validade do Pix em 30 minutos no horário de Brasília", () => {
-    expect(pixExpirationDate(new Date("2026-11-06T15:00:00.000Z"))).toBe(
-      "2026-11-06T12:30:00.000-03:00"
-    );
+  it("envia o Pix só com o e-mail e detalha o cartão", () => {
+    const payer = { email: EMAIL, name: "Ana Souza", phone: "41999998888" };
+    const items = [{ id: 1, title: "Marmita", quantity: 1, unitPrice: 20 }];
+    expect(payerFieldsFor({ paymentMethodId: "pix", payer, items })).toEqual({
+      payer: { email: EMAIL },
+    });
+    expect(
+      payerFieldsFor({ paymentMethodId: "visa", payer, items })
+    ).toHaveProperty("additional_info");
   });
 
   it("explica a recusa do cartão sem expor o código do provedor", () => {
@@ -374,6 +379,24 @@ describe("regras da loja", () => {
 
 describe("fila da cozinha", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("exclui o pedido da cozinha sem apagar o registro", async () => {
+    const created = await caller().orders.create({
+      ...guestOrder,
+      companySlug: "loja-completa",
+      paymentMethod: "cash_on_delivery",
+    });
+    await admin().orders.remove({ id: created.orderId! });
+    const found = await caller().orders.byId({
+      companySlug: "loja-completa",
+      id: created.orderId!,
+    });
+    expect(found?.order.status).toBe("cancelled");
+    await expect(admin().orders.remove({ id: 999999 })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
   const admin = () =>
     appRouter.createCaller({
       user: { id: 1, email: "dono@teste.com", role: "admin", companyId: -1 },

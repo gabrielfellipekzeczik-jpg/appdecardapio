@@ -194,19 +194,24 @@ export function buildPayerDetails(input: {
  * platform owner's Mercado Pago account); the remainder goes to the seller.
  * On a 401 (expired token) it refreshes once, persists the new pair, and retries.
  */
+/**
+ * O Pix vai só com o e-mail: o único Pix pago no app foi gerado assim, e os gerados
+ * com nome, telefone e validade não foram aceitos pelo banco na leitura do QR.
+ */
+export function payerFieldsFor(input: {
+  paymentMethodId?: string;
+  payer: CreatePaymentInput["payer"];
+  items?: CreatePaymentInput["items"];
+}) {
+  return input.paymentMethodId === "pix"
+    ? { payer: { email: input.payer.email } }
+    : buildPayerDetails(input);
+}
+
 export function computeApplicationFee(transactionAmount: number): number {
   return (
     Math.round(transactionAmount * (ENV.platformFeePercent / 100) * 100) / 100
   );
-}
-
-/** Prazo curto: um Pix pago horas depois chegaria com a loja já fechada. O mínimo aceito pelo Mercado Pago é 30 minutos. */
-export const PIX_EXPIRATION_MINUTES = 30;
-
-export function pixExpirationDate(now = new Date()): string {
-  const expiresAt = now.getTime() + PIX_EXPIRATION_MINUTES * 60_000;
-  const brasilia = new Date(expiresAt - 3 * 60 * 60_000);
-  return `${brasilia.toISOString().slice(0, 23)}-03:00`;
 }
 
 export async function createPayment(input: CreatePaymentInput) {
@@ -223,11 +228,8 @@ export async function createPayment(input: CreatePaymentInput) {
     token: input.token,
     installments: input.installments ?? 1,
     issuer_id: input.issuerId,
-    ...buildPayerDetails(input),
+    ...payerFieldsFor(input),
     external_reference: String(input.orderId),
-    ...(input.paymentMethodId === "pix"
-      ? { date_of_expiration: pixExpirationDate() }
-      : {}),
     notification_url: ENV.mpRedirectUri
       ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}`
       : undefined,
@@ -282,7 +284,11 @@ export async function createPayment(input: CreatePaymentInput) {
     status_detail: string;
     date_of_expiration?: string | null;
     point_of_interaction?: {
-      transaction_data?: { qr_code?: string; qr_code_base64?: string };
+      transaction_data?: {
+        qr_code?: string;
+        qr_code_base64?: string;
+        ticket_url?: string;
+      };
     };
   };
   return { ...payment, applicationFee };

@@ -786,6 +786,23 @@ export const appRouter = router({
           requireCustomerAccessToken(ctx.req)
         );
       }),
+    // Exclusão lógica: some da cozinha e do financeiro, mas o registro fica para
+    // o cliente ver o cancelamento e para conferir um pagamento que precise de estorno.
+    remove: companyAdminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await advanceOrderStatus(
+          ctx.companyId,
+          input.id,
+          "cancelled"
+        );
+        if (!result.persisted)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Pedido não encontrado.",
+          });
+        return { removed: true };
+      }),
     advanceStatus: companyAdminProcedure
       .input(
         z.object({
