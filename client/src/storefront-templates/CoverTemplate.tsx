@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Minus, Plus, ShieldCheck, ShoppingBag, Star, UtensilsCrossed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StorefrontCartCheckout } from "@/components/StorefrontCartCheckout";
+import { CustomerSummary } from "@/components/CustomerSummary";
 import { DEFAULT_HERO_IMAGE, type Storefront } from "@/lib/useStorefront";
 
 /**
@@ -214,6 +215,12 @@ function CartPanel({ s, brand }: { s: Storefront; brand: string }) {
               </div>
             ))}
           </div>
+          <CustomerSummary
+            s={s}
+            accent={brand}
+            className="mt-4 shrink-0 border-white/10 text-[#f6ecd9]"
+            mutedClassName="text-[#8a7f6f]"
+          />
           <div className="mt-4 shrink-0 space-y-2 border-t border-white/10 pt-4 text-sm">
             <div className="flex justify-between text-[#b3a793]"><span>Subtotal</span><span>R$ {s.subtotal.toFixed(2).replace(".", ",")}</span></div>
             <div className="flex justify-between text-[#b3a793]"><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>

@@ -28,6 +28,8 @@ export function loadConfig() {
     geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
     /** Domínio público do app (Vercel), sem barra final. O link do cardápio é <appUrl>/<slug>. */
     appUrl: required("PUBLIC_APP_URL").replace(/\/+$/, ""),
+    /** Mesma chave usada no app: é com ela que o robô pede ao app para criar pedidos. */
+    botKey: required("SUPABASE_SERVICE_ROLE_KEY"),
     dataDir: process.env.BOT_DATA_DIR || "./data",
     port: num("PORT", 8080),
     pollMs: num("BOT_POLL_SEC", 5) * 1000,

@@ -20,9 +20,51 @@ describe("buildSystemPrompt", () => {
   });
 });
 
+describe("dúvidas básicas", () => {
+  const withStore: CompanyContext = {
+    ...ctx,
+    store: {
+      hours: ["Segunda: 11:00 às 14:30", "Domingo: fechado"],
+      payments: ["Pix", "dinheiro ou maquininha na entrega"],
+      pickup: true,
+      delivery: { baseFee: 7.5, includedKm: 3, pricePerKm: 1.5, maxKm: 15 },
+    },
+  };
+
+  it("leva horário, pagamento, entrega e o horário atual ao assistente", () => {
+    const prompt = buildSystemPrompt(withStore, new Date("2026-11-09T15:00:00Z"));
+    expect(prompt).toContain("Segunda: 11:00 às 14:30");
+    expect(prompt).toContain("Pix, dinheiro ou maquininha na entrega");
+    expect(prompt).toContain("R$ 7,50 até 3 km");
+    expect(prompt).toContain("retirar na loja");
+    expect(prompt).toContain("segunda-feira, 12:00");
+    expect(prompt).toContain("NÃO SEJA INSISTENTE");
+    expect(buildSystemPrompt(withStore, new Date(), true)).toContain("JÁ FOI ENVIADO");
+  });
+
+  it("aceita os valores da taxa de entrega na resposta", () => {
+    expect(validateReply("A entrega começa em R$ 7,50, com R$ 1,50 por km a mais.", withStore)).not.toBeNull();
+    expect(validateReply("A entrega custa R$ 5,00.", withStore)).toBeNull();
+  });
+
+  it("entende as novas intenções", () => {
+    expect(parseDecision('{"should_reply":true,"intent":"hours","reply":"Abrimos às 11h"}')?.intent).toBe("hours");
+  });
+
+  it("lê o pedido montado pela IA", () => {
+    const decision = parseDecision(JSON.stringify({
+      should_reply: true, intent: "other", reply: "", action: "quote_order",
+      order: { items: [{ name: "Caseira", quantity: 2, note: "" }], fulfillment: "delivery", address: "81580-130", number: "159", complement: "", customer_name: "Ana", payment: "link" },
+    }));
+    expect(decision?.action).toBe("quote_order");
+    expect(decision?.order?.items[0]).toEqual({ name: "Caseira", quantity: 2, note: "" });
+    expect(parseDecision('{"should_reply":true,"intent":"other","reply":"","action":"apagar"}')?.action).toBe("none");
+  });
+});
+
 describe("parseDecision", () => {
   it("parses valid JSON, including fenced blocks", () => {
-    expect(parseDecision('{"should_reply":true,"intent":"price","reply":" Custa R$ 24,90 "}')).toEqual({ shouldReply: true, intent: "price", reply: "Custa R$ 24,90" });
+    expect(parseDecision('{"should_reply":true,"intent":"price","reply":" Custa R$ 24,90 "}')).toEqual({ shouldReply: true, intent: "price", reply: "Custa R$ 24,90", action: "none", order: null });
     expect(parseDecision('```json\n{"should_reply":false,"intent":"other","reply":""}\n```')?.shouldReply).toBe(false);
   });
   it("treats anything unparseable as no decision, and unknown intents as other", () => {

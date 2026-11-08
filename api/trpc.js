@@ -184,11 +184,13 @@ var init_finance = __esm({
 
 // shared/payment-messages.ts
 function isReadyForKitchen(order) {
-  return order.paymentMethod !== "mercadopago" || order.paymentStatus === "approved";
+  return !PAID_BEFORE_KITCHEN.includes(order.paymentMethod ?? "") || order.paymentStatus === "approved";
 }
+var PAID_BEFORE_KITCHEN;
 var init_payment_messages = __esm({
   "shared/payment-messages.ts"() {
     "use strict";
+    PAID_BEFORE_KITCHEN = ["mercadopago", "mercadopago_link"];
   }
 });
 
@@ -1017,7 +1019,7 @@ async function listRecentOrders(companyId, limit = 20) {
     return testListRecentOrders(1e3).filter(({ order }) => isReadyForKitchen(order)).slice(0, limit);
   const db = getDb();
   const { data, error } = await db.from("orders").select("*").eq("companyId", companyId).or(
-    "paymentMethod.is.null,paymentMethod.neq.mercadopago,paymentStatus.eq.approved"
+    "paymentMethod.is.null,paymentMethod.not.in.(mercadopago,mercadopago_link),paymentStatus.eq.approved"
   ).order("createdAt", { ascending: false }).limit(limit);
   if (error) throw new Error(`[DB] Falha ao listar pedidos: ${error.message}`);
   const orders2 = data ?? [];
@@ -2161,7 +2163,8 @@ function unavailableDeliveryResponse(provider, reason) {
 }
 
 // server/routers.ts
-import { createHash as createHash3, randomUUID } from "node:crypto";
+init_env();
+import { createHash as createHash3, randomUUID, timingSafeEqual } from "node:crypto";
 import { z as z2 } from "zod";
 
 // server/_core/systemRouter.ts
@@ -3038,6 +3041,100 @@ async function estimateFor(company, dropoffAddress) {
     );
   return { fee: estimateDeliveryFee(distanceKm, pricing), distanceKm };
 }
+var botProcedure = publicProcedure.use(({ ctx, next }) => {
+  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const raw = ctx.req.headers["x-bot-key"];
+  const received = Array.isArray(raw) ? raw[0] : raw;
+  const ok = expected.length > 0 && typeof received === "string" && received.length === expected.length && timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+  if (!ok)
+    throw new TRPCError2({ code: "UNAUTHORIZED", message: "Acesso negado." });
+  return next();
+});
+var botOrderInput = z2.object({
+  companyId: z2.number().int().positive(),
+  items: z2.array(
+    z2.object({
+      menuItemId: z2.number().int().positive(),
+      quantity: z2.number().int().positive().max(50),
+      observation: z2.string().max(300).optional()
+    })
+  ).min(1).max(30),
+  fulfillment: z2.enum(["delivery", "pickup"]),
+  /** CEP ou endereço completo, como o cliente escreveu. */
+  address: z2.string().trim().max(500).default(""),
+  addressNumber: z2.string().trim().max(32).default(""),
+  complement: z2.string().trim().max(160).default("")
+});
+async function prepareBotOrder(input) {
+  const company = await getCompanyById(input.companyId);
+  if (!company || company.status !== "active")
+    throw new TRPCError2({ code: "NOT_FOUND", message: "Loja indispon\xEDvel." });
+  const storeStatus = getStoreStatus(company.openingHours);
+  if (!storeStatus.open)
+    throw new TRPCError2({
+      code: "PRECONDITION_FAILED",
+      message: storeStatus.label ?? "A loja est\xE1 fechada agora."
+    });
+  const pickup = input.fulfillment === "pickup";
+  if (pickup && !(company.pickupEnabled && company.pickupAddress))
+    throw new TRPCError2({
+      code: "BAD_REQUEST",
+      message: "Esta loja n\xE3o faz retirada."
+    });
+  const menu2 = await listActiveMenu(company.id);
+  const prices = new Map(
+    menu2.map(
+      ({ item }) => [item.id, Number(item.price)]
+    )
+  );
+  if (input.items.some((item) => !prices.has(item.menuItemId)))
+    throw new TRPCError2({
+      code: "BAD_REQUEST",
+      message: "Um dos itens n\xE3o est\xE1 dispon\xEDvel."
+    });
+  const subtotal = Math.round(
+    input.items.reduce(
+      (sum, item) => sum + prices.get(item.menuItemId) * item.quantity,
+      0
+    ) * 100
+  ) / 100;
+  let address = null;
+  let deliveryFee = 0;
+  if (!pickup) {
+    if (!input.address || !input.addressNumber)
+      throw new TRPCError2({
+        code: "BAD_REQUEST",
+        message: "Falta o endere\xE7o ou o n\xFAmero."
+      });
+    const cep = input.address.replace(/\D/g, "");
+    address = cep.length === 8 && input.address.replace(/[\d\s.-]/g, "") === "" ? (await lookupCep(cep)).map(
+      (item) => `${item.street}${item.district ? ` - ${item.district}` : ""}, ${item.city} - ${item.state}, ${item.postcode}`
+    )[0] ?? null : input.address;
+    if (!address)
+      throw new TRPCError2({
+        code: "BAD_REQUEST",
+        message: "N\xE3o encontrei esse CEP."
+      });
+    const mode = await quoteModeFor(company);
+    if (mode)
+      deliveryFee = (await estimateFor(company, `${address}, n\xBA ${input.addressNumber}`).catch(
+        (error) => {
+          throw new TRPCError2({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "N\xE3o foi poss\xEDvel calcular a entrega."
+          });
+        }
+      )).fee;
+  }
+  return {
+    company,
+    pickup,
+    address,
+    subtotal,
+    deliveryFee,
+    total: Math.round((subtotal + deliveryFee) * 100) / 100
+  };
+}
 var orderRateLimiter = createRateLimiter(8, 10 * 6e4);
 var MAX_UNPAID_ORDERS_PER_HOUR = 5;
 async function lookupCep(cep) {
@@ -3075,6 +3172,61 @@ var openingHoursInput = z2.array(
 ).length(7).nullable();
 var appRouter = router({
   system: systemRouter,
+  bot: router({
+    quote: botProcedure.input(botOrderInput).mutation(async ({ input }) => {
+      const prepared = await prepareBotOrder(input);
+      return {
+        subtotal: prepared.subtotal,
+        deliveryFee: prepared.deliveryFee,
+        total: prepared.total,
+        address: prepared.address
+      };
+    }),
+    createOrder: botProcedure.input(
+      botOrderInput.extend({
+        name: z2.string().trim().min(2).max(160),
+        phone: z2.string().min(8).max(30),
+        paymentMode: z2.enum(["mercadopago_link", "cash_on_delivery"])
+      })
+    ).mutation(async ({ input }) => {
+      const prepared = await prepareBotOrder(input);
+      if (input.paymentMode === "cash_on_delivery" && !prepared.company.acceptsCashOnDelivery)
+        throw new TRPCError2({
+          code: "BAD_REQUEST",
+          message: "Esta loja n\xE3o aceita pagamento na entrega."
+        });
+      const trackingToken = randomUUID();
+      const created = await createCustomerOrder(prepared.company.id, {
+        name: input.name,
+        phone: input.phone.replace(/\D/g, ""),
+        address: prepared.pickup ? PICKUP_ADDRESS : prepared.address ?? "",
+        addressNumber: prepared.pickup ? "s/n" : [input.addressNumber, input.complement].filter(Boolean).join(", "),
+        pickup: prepared.pickup,
+        deliveryFee: prepared.deliveryFee,
+        accessToken: randomUUID(),
+        customerTrackingToken: trackingToken,
+        paymentMethod: input.paymentMode,
+        notes: ["Pedido pelo WhatsApp", ...input.items.filter((item) => item.observation).map((item) => item.observation)].join(" | "),
+        items: input.items
+      });
+      if (!created.orderId)
+        throw new TRPCError2({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "N\xE3o foi poss\xEDvel registrar o pedido."
+        });
+      if (input.paymentMode === "cash_on_delivery")
+        await notifyOrderEvent(created.orderId, "paid");
+      const link = input.paymentMode === "mercadopago_link" ? await createManualPaymentLink(prepared.company.id, created.orderId) : null;
+      const base = ENV.publicAppUrl;
+      return {
+        orderId: created.orderId,
+        total: prepared.total,
+        deliveryFee: prepared.deliveryFee,
+        paymentLink: link?.paymentLink ?? null,
+        trackingUrl: base ? `${base}/rastrear/${encodeURIComponent(prepared.company.slug)}/${trackingToken}` : null
+      };
+    })
+  }),
   auth: router({
     me: publicProcedure.query(
       (opts) => opts.ctx.user ? { ...opts.ctx.user, isSuperAdmin: isOwnerEmail(opts.ctx.user.email) } : null

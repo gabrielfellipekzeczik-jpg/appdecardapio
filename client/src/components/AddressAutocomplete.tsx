@@ -58,6 +58,12 @@ type Suggestion = { id: string; street: string; number: string; rest: string };
 const compose = (s: { street: string; rest: string }, number: string) =>
   `${s.street}${number ? `, ${number}` : ""}${s.rest}`;
 
+/** Texto do endereço sem número, pronto para o checkout (ex.: resultado da busca por CEP). */
+export function addressFromSuggestion(p: PhotonProps): string | null {
+  const suggestion = toSuggestion(p);
+  return suggestion ? compose(suggestion, "") : null;
+}
+
 function toSuggestion(p: PhotonProps): Suggestion | null {
   const street = p.street ?? p.name;
   if (!street) return null;

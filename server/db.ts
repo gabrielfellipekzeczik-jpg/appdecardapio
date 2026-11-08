@@ -314,7 +314,7 @@ export async function listRecentOrders(companyId: number, limit = 20) {
     .select("*")
     .eq("companyId", companyId)
     .or(
-      "paymentMethod.is.null,paymentMethod.neq.mercadopago,paymentStatus.eq.approved"
+      "paymentMethod.is.null,paymentMethod.not.in.(mercadopago,mercadopago_link),paymentStatus.eq.approved"
     )
     .order("createdAt", { ascending: false })
     .limit(limit);

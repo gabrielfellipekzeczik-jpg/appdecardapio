@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StorefrontCartCheckout } from "@/components/StorefrontCartCheckout";
+import { CustomerSummary } from "@/components/CustomerSummary";
 import { useTheme } from "@/contexts/ThemeContext";
 import { DEFAULT_HERO_IMAGE, type Storefront } from "@/lib/useStorefront";
 
@@ -172,6 +173,7 @@ export function PremiumTemplate(s: Storefront) {
                   ))}
                 </div>
                 <button onClick={() => s.setCartOpen(true)} className="mt-4 text-xs font-semibold underline" style={{ color: brand }}>Adicionar observação por item</button>
+                <CustomerSummary s={s} accent={brand} className={`mt-4 ${BORDER}`} mutedClassName={TEXT_MUTED} />
                 <div className={`mt-4 space-y-2 border-t ${BORDER} pt-4 text-sm`}>
                   <div className={`flex justify-between ${TEXT_MUTED}`}><span>Subtotal</span><span>R$ {s.subtotal.toFixed(2).replace(".", ",")}</span></div>
                   <div className={`flex justify-between ${TEXT_MUTED}`}><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>

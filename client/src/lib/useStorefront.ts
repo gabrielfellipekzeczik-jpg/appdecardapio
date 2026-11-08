@@ -32,6 +32,7 @@ const EMPTY_CUSTOMER = {
   addressComplement: "",
   addressReference: "",
   email: "",
+  postalCode: "",
 };
 
 /** Pagamento iniciado e ainda sem resposta. Fica salvo para sobreviver à ida ao app do banco. */

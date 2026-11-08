@@ -47,20 +47,20 @@ export function WhatsappBotCard() {
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#e2f1e7] text-[#347052]"><MessageCircle className="h-5 w-5" /></div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="font-display text-xl">WhatsApp — atendimento automático</CardTitle>
+              <CardTitle className="font-display text-xl">Atendimento automático no WhatsApp</CardTitle>
               <Badge className={`border-0 ${badge.className}`}>{badge.label}{status === "connected" && data?.phone ? ` · +${data.phone}` : ""}</Badge>
             </div>
-            <p className="mt-1 max-w-xl text-sm leading-6 text-[#776e63]">Um assistente com IA responde sozinho a quem te chama no WhatsApp perguntando preço ou pedindo o cardápio.</p>
+            <p className="mt-1 max-w-xl text-sm leading-6 text-[#776e63]">Clique em Conectar e leia o QR code com o WhatsApp do negócio. A IA responde dúvidas básicas e manda o link do seu cardápio.</p>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        {query.isError && <p className="rounded-xl bg-[#fbe4df] p-3 text-sm text-[#b4452f]">Não foi possível carregar o status do WhatsApp. {query.error.message.includes("whatsapp_bots") ? "Aplique a migração do banco (pnpm run db:push)." : query.error.message}</p>}
+        {query.isError && <p className="rounded-xl bg-[#fbe4df] p-3 text-sm text-[#b4452f]">Não foi possível carregar o status do WhatsApp. Tente de novo em instantes.</p>}
 
         {data && !data.serviceOnline && (
           <div className="flex gap-3 rounded-xl bg-[#fff0d7] p-3 text-sm text-[#7a4a1f]">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>O serviço do bot não está respondendo. Ele roda separado do app (pasta <code>bot/</code>) — veja o <b>SETUP.md</b>, seção “Bot de WhatsApp”. Você já pode clicar em Conectar; o QR aparece assim que o serviço estiver no ar.</p>
+            <p>O atendimento automático está fora do ar no momento. Você já pode clicar em Conectar: o QR code aparece assim que ele voltar.</p>
           </div>
         )}
 
@@ -106,9 +106,9 @@ export function WhatsappBotCard() {
           </div>
           <label htmlFor="bot-instructions" className="field-label mt-4 block">Informações extras para o assistente (opcional)</label>
           <Textarea id="bot-instructions" rows={4} maxLength={1500} value={instructions} onChange={(e) => setInstructions(e.target.value)}
-            placeholder="Ex.: Atendemos de segunda a sábado, das 10h às 19h. Aceitamos Pix e cartão. Entregamos em até 5 km." />
+            placeholder="Ex.: Temos opção vegetariana todo dia. Marmitas congeladas só sob encomenda." />
           <div className="mt-2 flex items-center justify-between gap-3">
-            <p className="text-xs text-[#a79b8d]">{instructions.length}/1500 — ele só usa isto e o seu cardápio; não inventa preços.</p>
+            <p className="text-xs text-[#a79b8d]">{instructions.length}/1500 · Horário, pagamento e entrega já vêm das suas Regras de pedido.</p>
             <Button size="sm" disabled={saveSettings.isPending || instructions === (loadedInstructions ?? "")} onClick={() => saveSettings.mutate({ instructions }, { onSuccess: () => setLoadedInstructions(instructions) })} className="rounded-xl bg-[#a05c32] text-white hover:bg-[#8a4e2b]">Salvar</Button>
           </div>
         </div>
@@ -117,7 +117,7 @@ export function WhatsappBotCard() {
           <p className="font-semibold text-[#29251f]">Como o assistente se comporta</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             <li>Só responde a mensagens de clientes que te chamaram; nunca inicia conversa, não faz divulgação nem manda para grupos.</li>
-            <li>Responde apenas sobre preço, cardápio, como pedir e endereço. Qualquer outro assunto fica para você.</li>
+            <li>Responde preço, cardápio, como pedir, endereço, horário, pagamento e entrega, sempre com o link do cardápio. Qualquer outro assunto fica para você.</li>
             <li>Só cita preços e o link do seu cardápio; respostas com qualquer outro valor ou link são descartadas.</li>
             <li>Se você responder pelo celular, ele se cala naquela conversa por 6 horas. Se o cliente escrever “SAIR”, não recebe mais nada.</li>
             <li>Digita como uma pessoa (pausa antes de responder) e tem limites de mensagens por contato e por hora.</li>

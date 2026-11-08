@@ -202,6 +202,12 @@ describe("regras de pagamento", () => {
         paymentStatus: "pending",
       })
     ).toBe(true);
+    expect(
+      isReadyForKitchen({
+        paymentMethod: "mercadopago_link",
+        paymentStatus: "pending",
+      })
+    ).toBe(false);
   });
 });
 
@@ -436,5 +442,28 @@ describe("fila da cozinha", () => {
       paymentMethod: "cash_on_delivery",
     });
     expect(await queue()).toContain(created.orderId);
+  });
+});
+
+describe("pedido pelo WhatsApp", () => {
+  const KEY = "chave-de-teste-do-robo";
+  const robot = (key = KEY) =>
+    appRouter.createCaller({
+      user: null,
+      req: { protocol: "https", headers: { "x-bot-key": key } },
+      res: {},
+    } as unknown as TrpcContext);
+  beforeEach(() => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = KEY;
+  });
+
+  it("recusa quem não tem a chave do robô", async () => {
+    await expect(
+      robot("errada-com-o-mesmo-tamanho").bot.quote({
+        companyId: -1,
+        items: [{ menuItemId: 1, quantity: 1 }],
+        fulfillment: "pickup",
+      })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });

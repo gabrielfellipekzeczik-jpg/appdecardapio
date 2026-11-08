@@ -1,5 +1,4 @@
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
-import { WhatsappBotCard } from "@/components/WhatsappBotCard";
 import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
@@ -557,7 +556,6 @@ export default function CompanyIntegrations() {
             </CardContent>
           </Card>
 
-          <WhatsappBotCard />
         </div>
 
         <Card className="mt-8 border-0 shadow-sm">

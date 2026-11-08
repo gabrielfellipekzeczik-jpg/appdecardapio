@@ -9,7 +9,9 @@ import QRCode from "qrcode";
 import type { Gemini } from "./ai.ts";
 import type { BotConfig } from "./config.ts";
 import { ReplyGuard, RecentIds, isOptOutMessage, readDelayMs, typingDelayMs } from "./guards.ts";
-import { ConversationMemory, validateReply, type CompanyContext } from "./prompt.ts";
+import { ConversationMemory, validateReply, type CompanyContext, type Decision } from "./prompt.ts";
+import { AppClient } from "./app-client.ts";
+import { createdMessage, phoneFromJid, quoteMessage, resolveItems, statusMessage, type QuotedOrder } from "./ordering.ts";
 import type { Store } from "./store.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,6 +35,9 @@ export class Session {
   private guard!: ReplyGuard;
   private memory = new ConversationMemory();
   private sentIds = new RecentIds();
+  /** Último resumo enviado por contato: só ele pode virar pedido na confirmação. */
+  private quotes = new Map<string, { at: number; order: QuotedOrder }>();
+  private app: AppClient;
   private ctxCache?: { at: number; ctx: CompanyContext | null };
   private logger = pino({ level: process.env.BOT_LOG_LEVEL || "warn" });
   private authDir: string;
@@ -41,6 +46,7 @@ export class Session {
   constructor(readonly companyId: number, private config: BotConfig, private store: Store, private gemini: Gemini) {
     this.authDir = path.join(config.dataDir, "auth", String(companyId));
     this.optOutFile = path.join(config.dataDir, `optout-${companyId}.json`);
+    this.app = new AppClient(config.appUrl, config.botKey);
   }
 
   get isStopped() { return this.stopped; }
@@ -213,12 +219,74 @@ export class Session {
     this.memory.push(jid, { role: "user", text });
     if (!decision?.shouldReply) { console.log(`[${this.companyId}] sem resposta automática (deixado para atendimento humano)`); return; }
 
+    if (decision.action !== "none") {
+      const handled = await this.runAction(decision, ctx, jid, message);
+      if (handled) {
+        await this.send(sock, message, handled);
+        this.memory.push(jid, { role: "model", text: handled });
+        this.guard.recordReply(jid);
+        return;
+      }
+    }
+
     const reply = validateReply(decision.reply, ctx);
     if (!reply) { console.warn(`[${this.companyId}] resposta do Gemini reprovada pela validação (preço/link fora do catálogo)`); return; }
 
     await this.send(sock, message, reply);
     this.memory.push(jid, { role: "model", text: reply });
     this.guard.recordReply(jid);
+  }
+
+  /** Pedido e status: o texto vem do app, não da IA, para nunca inventar valor ou link. */
+  private async runAction(decision: Decision, ctx: CompanyContext, jid: string, message: WAMessage): Promise<string | null> {
+    const key = message.key as { remoteJidAlt?: string; senderPn?: string };
+    const phone = phoneFromJid(jid) ?? phoneFromJid(key.remoteJidAlt) ?? phoneFromJid(key.senderPn);
+    try {
+      if (decision.action === "order_status") {
+        if (!phone) return "Me diga o telefone usado no pedido, por favor.";
+        return statusMessage(await this.store.ordersForPhone(this.companyId, phone));
+      }
+      if (decision.action === "confirm_order") {
+        const saved = this.quotes.get(jid);
+        if (!saved || Date.now() - saved.at > 30 * 60_000) return "Vou montar o resumo do pedido de novo. Pode me confirmar os itens?";
+        if (!phone) return "Para registrar o pedido, me diga um telefone de contato, por favor.";
+        const order = saved.order;
+        const created = await this.app.createOrder({
+          companyId: this.companyId,
+          items: order.items.map((item) => ({ menuItemId: item.menuItemId, quantity: item.quantity, observation: item.note || undefined })),
+          fulfillment: order.request.fulfillment,
+          address: order.request.address,
+          addressNumber: order.request.number,
+          complement: order.request.complement,
+          name: order.request.customerName || "Cliente WhatsApp",
+          phone,
+          paymentMode: order.request.payment === "cash" ? "cash_on_delivery" : "mercadopago_link",
+        });
+        this.quotes.delete(jid);
+        return createdMessage({ ...created, payment: order.request.payment });
+      }
+      if (decision.action === "quote_order" && decision.order) {
+        const { items, unknown } = resolveItems(decision.order, ctx.catalogIds ?? []);
+        if (unknown.length) return `Não encontrei no cardápio: ${unknown.join(", ")}. Pode conferir o nome?`;
+        if (!items.length) return null;
+        const quote = await this.app.quote({
+          companyId: this.companyId,
+          items: items.map((item) => ({ menuItemId: item.menuItemId, quantity: item.quantity })),
+          fulfillment: decision.order.fulfillment,
+          address: decision.order.address,
+          addressNumber: decision.order.number,
+          complement: decision.order.complement,
+        });
+        const order: QuotedOrder = { request: decision.order, items, ...quote };
+        this.quotes.set(jid, { at: Date.now(), order });
+        return quoteMessage(order);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "";
+      console.error(`[${this.companyId}] ação ${decision.action} falhou:`, reason);
+      return reason && reason.length < 160 ? `Não consegui seguir com o pedido: ${reason}` : "Não consegui seguir com o pedido agora. Já aviso a loja.";
+    }
+    return null;
   }
 
   /** Envia como uma pessoa: lê, "digita" por um tempo proporcional ao texto e só então manda. */

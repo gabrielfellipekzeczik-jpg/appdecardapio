@@ -35,12 +35,15 @@ export function paymentFailureMessage(error: unknown): string {
   return message;
 }
 
-/** Pedido online só vai para a produção depois de pago; dinheiro e pedidos do balcão seguem direto. */
+const PAID_BEFORE_KITCHEN = ["mercadopago", "mercadopago_link"];
+
+/** Pedido pago online (checkout ou link) só vai para a produção depois de aprovado; dinheiro segue direto. */
 export function isReadyForKitchen(order: {
   paymentStatus: string;
   paymentMethod?: string | null;
 }): boolean {
   return (
-    order.paymentMethod !== "mercadopago" || order.paymentStatus === "approved"
+    !PAID_BEFORE_KITCHEN.includes(order.paymentMethod ?? "") ||
+    order.paymentStatus === "approved"
   );
 }

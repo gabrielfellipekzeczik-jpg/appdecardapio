@@ -78,7 +78,9 @@ void reconcile();
 void store.heartbeat();
 
 // Endpoint simples para health check do host (Railway, Fly, Render…).
-createServer((_req, res) => { res.writeHead(200, { "content-type": "text/plain" }); res.end("ok"); }).listen(config.port, () => console.log(`Bot de WhatsApp no ar (porta ${config.port}).`));
+// Hospedagens como a Hostinger entregam PORT como caminho de socket, não só como número.
+const listenOn = process.env.PORT && Number.isNaN(Number(process.env.PORT)) ? process.env.PORT : config.port;
+createServer((_req, res) => { res.writeHead(200, { "content-type": "text/plain" }); res.end("ok"); }).listen(listenOn, () => console.log(`Bot de WhatsApp no ar (${listenOn}).`));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {

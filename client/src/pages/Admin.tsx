@@ -7,6 +7,7 @@ import {
   Copy,
   LogOut,
   MessageCircle,
+  MessagesSquare,
   Package,
   Palette,
   Plug,
@@ -19,6 +20,7 @@ import { MenuManager } from "@/components/MenuManager";
 import { FinanceDashboard } from "@/components/FinanceDashboard";
 import { InventoryManager } from "@/components/InventoryManager";
 import { KitchenBoard } from "@/components/KitchenBoard";
+import { WhatsappBotCard } from "@/components/WhatsappBotCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -31,7 +33,7 @@ const TABS = [
   { key: "inventory", label: "Estoque e produção", icon: Package, title: "Estoque e produção", subtitle: "O que você tem, o que vai fazer e o que falta comprar." },
   { key: "finance", label: "Financeiro", icon: WalletCards, title: "Financeiro", subtitle: "Quanto entrou, quanto saiu e o que mais vende." },
 ] as const;
-type TabKey = (typeof TABS)[number]["key"] | "appearance";
+type TabKey = (typeof TABS)[number]["key"] | "appearance" | "whatsapp";
 
 export default function Admin() {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -95,10 +97,17 @@ export default function Admin() {
     }
   };
   const current = TABS.find(entry => entry.key === tab);
-  const heading = current ?? {
-    title: "Aparência",
-    subtitle: "Logo, cores, horários e o visual da sua página.",
-  };
+  const heading =
+    current ??
+    (tab === "whatsapp"
+      ? {
+          title: "WhatsApp",
+          subtitle: "Conecte o número do negócio e deixe a IA responder os clientes.",
+        }
+      : {
+          title: "Aparência",
+          subtitle: "Logo, cores, horários e o visual da sua página.",
+        });
 
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">
@@ -178,6 +187,16 @@ export default function Admin() {
             </a>
             <Button
               variant="outline"
+              onClick={() => setTab("whatsapp")}
+              aria-pressed={tab === "whatsapp"}
+              aria-label="WhatsApp"
+              className="rounded-xl border-[#e5e0d7] bg-white px-3"
+            >
+              <MessagesSquare className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">WhatsApp</span>
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => setTab("appearance")}
               aria-pressed={tab === "appearance"}
               aria-label="Aparência"
@@ -227,6 +246,7 @@ export default function Admin() {
           {tab === "inventory" && <InventoryManager slug={slug} />}
           {tab === "finance" && <FinanceDashboard />}
           {tab === "appearance" && <AppearancePanel />}
+          {tab === "whatsapp" && <WhatsappBotCard />}
         </main>
       </div>
     </div>

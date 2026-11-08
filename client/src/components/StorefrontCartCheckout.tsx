@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { MercadoPagoBrick } from "@/components/MercadoPagoBrick";
-import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { CepAddressInput } from "@/components/CepAddressInput";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { OrderTrackingView } from "@/components/OrderTrackingView";
@@ -45,6 +45,7 @@ type SavedAddress = {
   addressNumber: string;
   addressComplement: string;
   addressReference: string;
+  postalCode?: string;
 };
 type CustomerProfile = {
   name?: string;
@@ -235,6 +236,7 @@ export function StorefrontCartCheckout(s: Storefront) {
         addressNumber,
         addressComplement: s.customer.addressComplement.trim(),
         addressReference: s.customer.addressReference.trim(),
+        postalCode: s.customer.postalCode,
       };
       addresses = [
         record,
@@ -321,6 +323,7 @@ export function StorefrontCartCheckout(s: Storefront) {
       addressNumber: entry.addressNumber,
       addressComplement: entry.addressComplement,
       addressReference: entry.addressReference,
+      postalCode: entry.postalCode ?? "",
     }));
   };
 
@@ -804,6 +807,7 @@ export function StorefrontCartCheckout(s: Storefront) {
                                       addressNumber: "",
                                       addressComplement: "",
                                       addressReference: "",
+                                      postalCode: "",
                                     }));
                                   }}
                                   className="h-11 shrink-0 rounded-xl border border-dashed border-[#cdd6cd] px-3 text-xs font-semibold text-[#526d58]"
@@ -812,16 +816,21 @@ export function StorefrontCartCheckout(s: Storefront) {
                                 </button>
                               </div>
                             )}
-                            <AddressAutocomplete
-                              value={s.customer.address}
-                              onChange={value =>
-                                setCustomerField("address", value)
+                            <CepAddressInput
+                              key={selectedAddressId ?? "novo"}
+                              address={s.customer.address}
+                              postalCode={s.customer.postalCode}
+                              onChange={(address, postalCode) =>
+                                s.setCustomer(current => ({
+                                  ...current,
+                                  address,
+                                  postalCode,
+                                }))
                               }
                               onNumberChange={value =>
                                 setCustomerField("addressNumber", value)
                               }
-                              showNumberInput={false}
-                              placeholder="CEP ou rua e bairro"
+                              inputClassName={fieldClass}
                             />
                             <div className="mt-2.5 grid grid-cols-[84px_minmax(0,1fr)] gap-2.5 sm:grid-cols-[84px_minmax(0,1fr)_minmax(0,1fr)]">
                               <Field label="Nº">
