@@ -1,3 +1,4 @@
+import { MAX_PLATFORM_FEE_PERCENT } from "@shared/platform-fee";
 import { TRPCError } from "@trpc/server";
 import { eventForStatus, isForwardMove, notifyOrderEvent } from "./notifications";
 import { clientIp, createRateLimiter } from "./_core/rateLimit";
@@ -32,6 +33,7 @@ import {
   isSlugAvailableFormat,
   listCompanies,
   setCompanyStatus,
+  setCompanyFeePercent,
   updateCompanyBranding,
   updateCompanyOrdering,
 } from "./companies";
@@ -719,6 +721,22 @@ export const appRouter = router({
         })
       )
       .mutation(({ input }) => setCompanyStatus(input.companyId, input.status)),
+    setFeePercent: superAdminProcedure
+      .input(
+        z.object({
+          companyId: z.number().int().positive(),
+          percent: z
+            .number()
+            .min(0)
+            .max(MAX_PLATFORM_FEE_PERCENT)
+            .multipleOf(0.01)
+            .nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await setCompanyFeePercent(input.companyId, input.percent);
+        return { success: true } as const;
+      }),
   }),
   menu: router({
     list: publicProcedure

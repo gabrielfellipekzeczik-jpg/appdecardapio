@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
-import { getIntegrationCredentials, saveIntegrationCredentials } from "../db";
+import { getDb, getIntegrationCredentials, saveIntegrationCredentials } from "../db";
+import { effectiveFeePercent, platformFeeAmount } from "@shared/platform-fee";
 
 const MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
 const MP_TOKEN_URL = "https://api.mercadopago.com/oauth/token";
@@ -208,9 +209,24 @@ export function payerFieldsFor(input: {
     : buildPayerDetails(input);
 }
 
-export function computeApplicationFee(transactionAmount: number): number {
-  return (
-    Math.round(transactionAmount * (ENV.platformFeePercent / 100) * 100) / 100
+/** Sem `percent`, usa a taxa padrão da plataforma (PLATFORM_FEE_PERCENT). */
+export function computeApplicationFee(
+  transactionAmount: number,
+  percent: number = ENV.platformFeePercent
+): number {
+  return platformFeeAmount(transactionAmount, percent);
+}
+
+/** Taxa definida pelo dono da plataforma para o restaurante, ou a padrão. */
+export async function feePercentFor(companyId: number): Promise<number> {
+  const { data } = await getDb()
+    .from("companies")
+    .select("mp_fee_percent")
+    .eq("id", companyId)
+    .maybeSingle();
+  return effectiveFeePercent(
+    (data as { mp_fee_percent: number | string | null } | null)?.mp_fee_percent,
+    ENV.platformFeePercent
   );
 }
 
@@ -218,7 +234,10 @@ export async function createPayment(input: CreatePaymentInput) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
 
-  const applicationFee = computeApplicationFee(input.transactionAmount);
+  const applicationFee = computeApplicationFee(
+    input.transactionAmount,
+    await feePercentFor(input.companyId)
+  );
 
   const body = {
     transaction_amount: input.transactionAmount,
@@ -360,7 +379,10 @@ export async function createPaymentLink(input: {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials)
     throw new Error("Mercado Pago não está conectado para esta loja.");
-  const applicationFee = computeApplicationFee(input.transactionAmount);
+  const applicationFee = computeApplicationFee(
+    input.transactionAmount,
+    await feePercentFor(input.companyId)
+  );
   const body = {
     items: [
       {

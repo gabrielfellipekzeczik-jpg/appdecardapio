@@ -8,6 +8,24 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// shared/platform-fee.ts
+function effectiveFeePercent(companyPercent, defaultPercent) {
+  if (companyPercent === null || companyPercent === void 0 || companyPercent === "")
+    return defaultPercent;
+  const value = Number(companyPercent);
+  return Number.isFinite(value) ? value : defaultPercent;
+}
+function platformFeeAmount(transactionAmount, percent) {
+  return Math.round(transactionAmount * (percent / 100) * 100) / 100;
+}
+var MAX_PLATFORM_FEE_PERCENT;
+var init_platform_fee = __esm({
+  "shared/platform-fee.ts"() {
+    "use strict";
+    MAX_PLATFORM_FEE_PERCENT = 30;
+  }
+});
+
 // server/_core/env.ts
 function assertRuntimeEnv() {
   if (process.env.NODE_ENV === "test") return;
@@ -2029,6 +2047,7 @@ __export(companies_exports, {
   getCompanyBySlug: () => getCompanyBySlug,
   isSlugAvailableFormat: () => isSlugAvailableFormat,
   listCompanies: () => listCompanies,
+  setCompanyFeePercent: () => setCompanyFeePercent,
   setCompanyStatus: () => setCompanyStatus,
   updateCompanyBranding: () => updateCompanyBranding,
   updateCompanyOrdering: () => updateCompanyOrdering
@@ -2056,15 +2075,27 @@ async function createCompany(input) {
 async function listCompanies() {
   const db = getDb();
   const { data: companies } = await db.from("companies").select("*").order("createdAt");
-  if (!companies) return [];
+  if (!companies) return { companies: [], defaultFeePercent: ENV.platformFeePercent };
   const results = await Promise.all(companies.map(async (company) => {
     const { data: orders2 } = await db.from("orders").select("total, platformFeeAmount").eq("companyId", company.id).eq("paymentStatus", "approved");
     const rows = orders2 ?? [];
     const revenue = rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
     const platformFee = rows.reduce((sum, r) => sum + Number(r.platformFeeAmount ?? 0), 0);
-    return { company, revenue, platformFee, orderCount: rows.length };
+    return {
+      company,
+      revenue,
+      platformFee,
+      orderCount: rows.length,
+      feePercent: effectiveFeePercent(company.mp_fee_percent, ENV.platformFeePercent),
+      customFee: company.mp_fee_percent !== null && company.mp_fee_percent !== void 0
+    };
   }));
-  return results;
+  return { companies: results, defaultFeePercent: ENV.platformFeePercent };
+}
+async function setCompanyFeePercent(companyId, percent) {
+  const db = getDb();
+  const { error } = await db.from("companies").update({ mp_fee_percent: percent }).eq("id", companyId);
+  if (error) throw new Error(`[DB] Falha ao salvar a taxa: ${error.message}`);
 }
 async function setCompanyStatus(companyId, status) {
   const db = getDb();
@@ -2083,6 +2114,8 @@ var RESERVED_SLUGS;
 var init_companies = __esm({
   "server/companies.ts"() {
     "use strict";
+    init_platform_fee();
+    init_env();
     init_db();
     RESERVED_SLUGS = /* @__PURE__ */ new Set(["admin-login", "super-admin", "cadastrar", "api", "404", "admin", "cozinha"]);
   }
@@ -2092,6 +2125,7 @@ var init_companies = __esm({
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
 // server/routers.ts
+init_platform_fee();
 init_notifications();
 import { TRPCError as TRPCError2 } from "@trpc/server";
 
@@ -2325,6 +2359,7 @@ init_db();
 // server/integrations/mercadoPago.ts
 init_env();
 init_db();
+init_platform_fee();
 var MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
 var MP_TOKEN_URL = "https://api.mercadopago.com/oauth/token";
 var MP_PAYMENTS_URL = "https://api.mercadopago.com/v1/payments";
@@ -2416,13 +2451,23 @@ function buildPayerDetails(input) {
 function payerFieldsFor(input) {
   return input.paymentMethodId === "pix" ? { payer: { email: input.payer.email } } : buildPayerDetails(input);
 }
-function computeApplicationFee(transactionAmount) {
-  return Math.round(transactionAmount * (ENV.platformFeePercent / 100) * 100) / 100;
+function computeApplicationFee(transactionAmount, percent = ENV.platformFeePercent) {
+  return platformFeeAmount(transactionAmount, percent);
+}
+async function feePercentFor(companyId) {
+  const { data } = await getDb().from("companies").select("mp_fee_percent").eq("id", companyId).maybeSingle();
+  return effectiveFeePercent(
+    data?.mp_fee_percent,
+    ENV.platformFeePercent
+  );
 }
 async function createPayment(input) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
-  const applicationFee = computeApplicationFee(input.transactionAmount);
+  const applicationFee = computeApplicationFee(
+    input.transactionAmount,
+    await feePercentFor(input.companyId)
+  );
   const body = {
     transaction_amount: input.transactionAmount,
     ...applicationFee > 0 ? { application_fee: applicationFee } : {},
@@ -2508,7 +2553,10 @@ async function createPaymentLink(input) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials)
     throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
-  const applicationFee = computeApplicationFee(input.transactionAmount);
+  const applicationFee = computeApplicationFee(
+    input.transactionAmount,
+    await feePercentFor(input.companyId)
+  );
   const body = {
     items: [
       {
@@ -3379,7 +3427,16 @@ var appRouter = router({
         companyId: z2.number().int().positive(),
         status: z2.enum(["active", "suspended"])
       })
-    ).mutation(({ input }) => setCompanyStatus(input.companyId, input.status))
+    ).mutation(({ input }) => setCompanyStatus(input.companyId, input.status)),
+    setFeePercent: superAdminProcedure.input(
+      z2.object({
+        companyId: z2.number().int().positive(),
+        percent: z2.number().min(0).max(MAX_PLATFORM_FEE_PERCENT).multipleOf(0.01).nullable()
+      })
+    ).mutation(async ({ input }) => {
+      await setCompanyFeePercent(input.companyId, input.percent);
+      return { success: true };
+    })
   }),
   menu: router({
     list: publicProcedure.input(z2.object({ companySlug: z2.string() })).query(async ({ input }) => {

@@ -105,7 +105,8 @@ export type Company = {
   deliveryMaxKm?: number | string | null;
   status: "active" | "suspended";
   mp_connected: boolean;
-  mp_fee_percent: number | null;
+  /** Taxa da plataforma (%) para este restaurante; null usa PLATFORM_FEE_PERCENT. */
+  mp_fee_percent: number | string | null;
   createdAt: string;
 };
 

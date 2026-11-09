@@ -1,5 +1,7 @@
 // server/companies.ts — usando Supabase SDK em vez de Drizzle
 import type { OpeningHours } from "@shared/store-rules";
+import { effectiveFeePercent } from "@shared/platform-fee";
+import { ENV } from "./_core/env";
 import { getDb, type Company } from "./db";
 
 const RESERVED_SLUGS = new Set(["admin-login", "super-admin", "cadastrar", "api", "404", "admin", "cozinha"]);
@@ -32,7 +34,7 @@ export async function createCompany(input: { slug: string; name: string; tagline
 export async function listCompanies() {
   const db = getDb();
   const { data: companies } = await db.from("companies").select("*").order("createdAt");
-  if (!companies) return [];
+  if (!companies) return { companies: [], defaultFeePercent: ENV.platformFeePercent };
 
   const results = await Promise.all((companies as Company[]).map(async (company) => {
     const { data: orders } = await db.from("orders")
@@ -42,9 +44,26 @@ export async function listCompanies() {
     const rows = (orders ?? []) as Array<{ total: string; platformFeeAmount: string | null }>;
     const revenue = rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
     const platformFee = rows.reduce((sum, r) => sum + Number(r.platformFeeAmount ?? 0), 0);
-    return { company, revenue, platformFee, orderCount: rows.length };
+    return {
+      company,
+      revenue,
+      platformFee,
+      orderCount: rows.length,
+      feePercent: effectiveFeePercent(company.mp_fee_percent, ENV.platformFeePercent),
+      customFee: company.mp_fee_percent !== null && company.mp_fee_percent !== undefined,
+    };
   }));
-  return results;
+  return { companies: results, defaultFeePercent: ENV.platformFeePercent };
+}
+
+/** `null` volta o restaurante para a taxa padrão da plataforma. */
+export async function setCompanyFeePercent(companyId: number, percent: number | null) {
+  const db = getDb();
+  const { error } = await db
+    .from("companies")
+    .update({ mp_fee_percent: percent } as Record<string, unknown>)
+    .eq("id", companyId);
+  if (error) throw new Error(`[DB] Falha ao salvar a taxa: ${error.message}`);
 }
 
 export async function setCompanyStatus(companyId: number, status: "active" | "suspended") {
