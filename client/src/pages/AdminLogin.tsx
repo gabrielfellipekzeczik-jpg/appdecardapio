@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { LockKeyhole, Utensils } from "lucide-react";
 import { motion } from "framer-motion";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { GoogleSignInButton, OrDivider } from "@/components/GoogleSignInButton";
 import { trpc } from "@/lib/trpc";
 
 const RED    = "#ff1c2e";
@@ -18,6 +19,41 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const routing = useRef(false);
+
+  /** "/admin" não é uma rota: o painel fica em /:slug/admin. Descobre para onde ir. */
+  const goToPanel = async () => {
+    if (routing.current) return;
+    routing.current = true;
+    try {
+      const me = await utils.auth.me.fetch();
+      if (me?.companyId) {
+        const company = await utils.company.mine.fetch();
+        navigate(company ? `/${company.slug}/admin` : "/cadastrar");
+      } else if (me?.isSuperAdmin) {
+        navigate("/super-admin");
+      } else {
+        // Conta criada e confirmada, mas sem restaurante: termina o cadastro.
+        navigate("/cadastrar");
+      }
+    } catch (err) {
+      routing.current = false;
+      console.error("[AdminLogin]", err);
+      setError("Login feito, mas não foi possível carregar seu painel. Confira se o servidor está no ar e tente de novo.");
+    }
+  };
+
+  // Volta do Google (ou sessão já aberta): segue direto para o painel.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) void goToPanel();
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) void goToPanel();
+    });
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -34,21 +70,7 @@ export default function AdminLogin() {
         );
         return;
       }
-
-      // "/admin" não é uma rota: o painel fica em /:slug/admin. Descobre para onde ir.
-      const me = await utils.auth.me.fetch();
-      if (me?.companyId) {
-        const company = await utils.company.mine.fetch();
-        navigate(company ? `/${company.slug}/admin` : "/cadastrar");
-      } else if (me?.isSuperAdmin) {
-        navigate("/super-admin");
-      } else {
-        // Conta criada e confirmada, mas sem restaurante: termina o cadastro.
-        navigate("/cadastrar");
-      }
-    } catch (err) {
-      console.error("[AdminLogin]", err);
-      setError("Login feito, mas não foi possível carregar seu painel. Confira se o servidor está no ar e tente de novo.");
+      await goToPanel();
     } finally {
       setLoading(false);
     }
@@ -90,7 +112,15 @@ export default function AdminLogin() {
               Acesso ao painel do restaurante.
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <GoogleSignInButton
+              redirectPath="/admin-login"
+              label="Entrar com Google"
+              className="mt-6"
+              onError={setError}
+            />
+            <OrDivider className="mt-4" />
+
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <motion.div
                 initial={{ opacity: 0, x: -16 }}
                 animate={{ opacity: 1, x: 0 }}

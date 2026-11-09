@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { MercadoPagoBrick } from "@/components/MercadoPagoBrick";
 import { CepAddressInput } from "@/components/CepAddressInput";
 import { supabase } from "@/lib/supabase";
+import { GoogleSignInButton, OrDivider } from "@/components/GoogleSignInButton";
 import { trpc } from "@/lib/trpc";
 import { OrderTrackingView } from "@/components/OrderTrackingView";
 import { PendingPaymentPanel } from "@/components/PendingPaymentPanel";
@@ -144,12 +145,39 @@ export function StorefrontCartCheckout(s: Storefront) {
     setSelectedAddressId(addresses[0]?.id ?? null);
     s.setCustomer(current => ({
       ...current,
-      name: current.name || profile.name || "",
+      name:
+        current.name ||
+        profile.name ||
+        String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""),
       phone: current.phone || formatPhone(profile.phone ?? ""),
       email: user.email ?? current.email,
       ...(current.address ? {} : addresses[0] ? addresses[0] : {}),
     }));
   };
+
+  // Volta do login com Google: reabre o checkout onde o cliente estava.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("checkout")) return;
+    params.delete("checkout");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+    );
+    s.setCartOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user.email_confirmed_at)
+        applyProfile(session.user);
+    });
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.slug]);
 
   useEffect(() => {
     let active = true;
@@ -691,6 +719,11 @@ export function StorefrontCartCheckout(s: Storefront) {
                           </div>
                         ) : (
                           <>
+                            <GoogleSignInButton
+                              redirectPath={`/${s.slug}?checkout=1`}
+                              onError={setAuthError}
+                            />
+                            <OrDivider />
                             <Field label="E-mail">
                               <Input
                                 type="email"

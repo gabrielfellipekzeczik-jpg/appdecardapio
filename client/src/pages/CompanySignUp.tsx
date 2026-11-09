@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { supabase } from "@/lib/supabase";
+import { GoogleSignInButton, OrDivider } from "@/components/GoogleSignInButton";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -329,9 +330,25 @@ export default function CompanySignUp() {
       </motion.div>
 
       <h1 className="mt-5 text-center font-display text-2xl font-bold">Cadastre seu restaurante</h1>
-      <p className="mt-1 text-center text-sm text-[#776e63]">Comece a vender em minutos.</p>
+      <p className="mt-1 text-center text-sm text-[#776e63]">
+        {alreadyLoggedInNoCompany
+          ? `Conta conectada${user?.email ? ` (${user.email})` : ""}. Agora é só dar nome ao seu cardápio.`
+          : "Comece a vender em minutos."}
+      </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
+      {!alreadyLoggedInNoCompany && (
+        <>
+          <GoogleSignInButton
+            redirectPath="/cadastrar"
+            label="Cadastrar com Google"
+            className="mt-6"
+            onError={setError}
+          />
+          <OrDivider className="mt-4" />
+        </>
+      )}
+
+      <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
         <div>
           <label className="field-label" htmlFor="signup-name">Nome do restaurante</label>
           <Input

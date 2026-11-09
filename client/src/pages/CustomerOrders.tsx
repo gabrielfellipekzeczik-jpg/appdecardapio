@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OrderTrackingView } from "@/components/OrderTrackingView";
 import { supabase } from "@/lib/supabase";
+import { GoogleSignInButton, OrDivider } from "@/components/GoogleSignInButton";
 import { trpc } from "@/lib/trpc";
 import { usePageTitle } from "@/lib/usePageTitle";
 
@@ -92,6 +93,8 @@ export default function CustomerOrders() {
             <p className="mt-3 text-sm text-[#737a73]">Carregando…</p>
           ) : !sessionEmail ? (
             <div className="mt-3 space-y-3">
+              <GoogleSignInButton redirectPath={`/${slug}/pedidos`} onError={message => toast.error(message)} />
+              <OrDivider />
               <p className="text-sm text-[#737a73]">Digite o e-mail usado na compra. Enviaremos um código de 6 dígitos para você ver e rastrear seus pedidos.</p>
               <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="voce@exemplo.com" autoComplete="email" disabled={codeSent} className="h-11 rounded-xl" />
               {!codeSent ? (
