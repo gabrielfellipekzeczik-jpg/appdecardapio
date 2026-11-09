@@ -13,6 +13,7 @@ import {
   Package,
   Palette,
   Plug,
+  Settings,
   Settings2,
   Utensils,
   WalletCards,
@@ -25,6 +26,12 @@ import { KitchenBoard } from "@/components/KitchenBoard";
 import { WhatsappBotCard } from "@/components/WhatsappBotCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -256,26 +263,29 @@ export default function Admin() {
               <MessagesSquare className="mr-2 h-4 w-4" />
               <span>WhatsApp</span>
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setTab("appearance")}
-              aria-pressed={tab === "appearance"}
-              aria-label="Aparência"
-              className="rounded-xl border-[#e5e0d7] bg-white px-3"
-            >
-              <Palette className="mr-2 h-4 w-4" />
-              <span>Aparência</span>
-            </Button>
-            <Link href={`/${slug}/admin/integracoes`}>
-              <Button
-                variant="outline"
-                aria-label="Integrações"
-                className="rounded-xl border-[#e5e0d7] bg-white px-3"
-              >
-                <Plug className="mr-2 h-4 w-4" />
-                <span>Integrações</span>
-              </Button>
-            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  aria-label="Configurações"
+                  aria-pressed={tab === "appearance"}
+                  className="rounded-xl border-[#e5e0d7] bg-white px-3"
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Configurações</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                <DropdownMenuItem onSelect={() => setTab("appearance")} className="gap-2 py-2.5">
+                  <Palette className="h-4 w-4" /> Aparência e regras
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="gap-2 py-2.5">
+                  <Link href={`/${slug}/admin/integracoes`}>
+                    <Plug className="h-4 w-4" /> Integrações
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -299,6 +309,7 @@ export default function Admin() {
             <div className="mx-3 border-t border-[#e5e0d7]" />
             <div className="space-y-1 p-3">
               {drawerItem(tab === "whatsapp", MessagesSquare, "Robô do WhatsApp", () => go("whatsapp"))}
+              <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[#9a9185]">Configurações</p>
               {drawerItem(tab === "appearance", Palette, "Aparência e regras", () => go("appearance"))}
               <Link href={`/${slug}/admin/integracoes`}>
                 {drawerItem(false, Plug, "Integrações")}

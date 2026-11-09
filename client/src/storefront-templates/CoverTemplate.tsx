@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { StorefrontCartCheckout } from "@/components/StorefrontCartCheckout";
 import { CustomerSummary } from "@/components/CustomerSummary";
 import { DEFAULT_HERO_IMAGE, type Storefront } from "@/lib/useStorefront";
+import { LIGHT_INK, LightCover, WaveCorners } from "./CoverLightArt";
 
 /**
  * Cores do modelo Capa. O dono escolhe em Aparência entre o fundo escuro
@@ -24,21 +25,23 @@ const THEMES = {
     "--cv-line": "rgba(255,255,255,.1)",
     "--cv-overlay": "linear-gradient(rgba(10,7,4,.5), rgba(10,7,4,.72))",
     "--cv-stage": "radial-gradient(circle at 50% 18%, rgba(0,0,0,.25), rgba(0,0,0,.7))",
+    "--cv-on-accent": "#211a13",
   },
   light: {
-    "--cv-page": "#f7f2ea",
-    "--cv-page-soft": "rgba(250,246,239,.9)",
-    "--cv-bar": "rgba(250,246,239,.94)",
-    "--cv-cover": "#fffaf2",
-    "--cv-panel": "rgba(255,253,249,.94)",
-    "--cv-card": "rgba(255,255,255,.85)",
-    "--cv-title": "#2a2118",
-    "--cv-text": "#2a2118",
-    "--cv-muted": "#6e6253",
-    "--cv-faint": "#9a8c7a",
-    "--cv-line": "rgba(42,33,24,.12)",
-    "--cv-overlay": "linear-gradient(rgba(250,246,239,.78), rgba(250,246,239,.9))",
-    "--cv-stage": "radial-gradient(circle at 50% 18%, rgba(255,250,242,.35), rgba(60,45,30,.45))",
+    "--cv-page": "#f6ecdf",
+    "--cv-page-soft": "rgba(248,239,227,.92)",
+    "--cv-bar": "rgba(250,243,233,.95)",
+    "--cv-cover": "#f7ebdc",
+    "--cv-panel": "rgba(253,248,241,.95)",
+    "--cv-card": "#fffaf3",
+    "--cv-title": "#5a2f15",
+    "--cv-text": "#3d2414",
+    "--cv-muted": "#7d5a43",
+    "--cv-faint": "#a2826b",
+    "--cv-line": "rgba(110,59,28,.2)",
+    "--cv-overlay": "linear-gradient(rgba(246,236,223,0), rgba(246,236,223,0))",
+    "--cv-stage": "radial-gradient(circle at 50% 30%, rgba(253,246,236,.6), rgba(90,47,21,.35))",
+    "--cv-on-accent": "#fbf1e4",
   },
 } as const;
 
@@ -62,41 +65,54 @@ export function CoverTemplate(s: Storefront) {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [dismissed]);
 
-  const brand = company.primaryColor || "#c9a15a";
-  const backdrop = company.heroImageUrl || DEFAULT_HERO_IMAGE;
   const mode = (company as { storefrontTheme?: string | null }).storefrontTheme === "light" ? "light" : "dark";
+  // No claro o cardápio segue o creme com marrom-café; no escuro, a cor da marca.
+  const brand = mode === "light" ? LIGHT_INK : company.primaryColor || "#c9a15a";
+  const backdrop = company.heroImageUrl || DEFAULT_HERO_IMAGE;
   const themeVars = THEMES[mode] as unknown as CSSProperties;
 
   return <div data-cover-theme={mode} className="isolate min-h-screen overflow-x-hidden bg-[var(--cv-page)] text-[var(--cv-text)]" style={themeVars}>
-    <div
-      aria-hidden="true"
-      className="fixed inset-0 -z-10"
-      style={{ backgroundImage: `var(--cv-overlay), url(${backdrop})`, backgroundSize: "cover", backgroundPosition: "center" }}
-    />
+    {mode === "light" ? (
+      <div aria-hidden="true" className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_center,#fdf6ec_0%,#f6e9d9_70%,#efdcc6_100%)]">
+        <WaveCorners className="opacity-60" />
+      </div>
+    ) : (
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 -z-10"
+        style={{ backgroundImage: `var(--cv-overlay), url(${backdrop})`, backgroundSize: "cover", backgroundPosition: "center" }}
+      />
+    )}
     {!dismissed && (
       <div
         className={`menu-cover-stage ${opening ? "is-dismissing" : ""}`}
         style={{ pointerEvents: opening ? "none" : "auto", background: "var(--cv-stage)" }}
         onTransitionEnd={(event) => { if (event.propertyName === "opacity" && event.target === event.currentTarget) setDismissed(true); }}
       >
-        <div className={`menu-cover flex flex-col justify-between bg-[var(--cv-cover)] p-8 text-center sm:p-10 ${opening ? "is-opening" : ""}`}>
-          <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.4em]" style={{ color: brand }}>Cardápio</span>
-          <div className="flex flex-1 flex-col items-center justify-center gap-5">
-            <Logo company={company} brand={brand} size="h-24 w-24" icon="h-9 w-9" />
-            <div>
-              <h1 className="font-display text-2xl font-bold leading-tight text-[var(--cv-title)] sm:text-3xl">{company.name}</h1>
-              <div className="mx-auto mt-3 h-px w-12" style={{ backgroundColor: brand }} />
-              {company.tagline && <p className="mx-auto mt-3 max-w-[22ch] text-xs uppercase tracking-[0.15em] text-[var(--cv-muted)] sm:text-sm">{company.tagline}</p>}
-            </div>
+        {mode === "light" ? (
+          <div className={`menu-cover ${opening ? "is-opening" : ""}`} style={{ ["--frame-color" as string]: "transparent", width: "min(92vw, 460px)", aspectRatio: "2 / 3", maxHeight: "90vh" }}>
+            <LightCover company={company} onOpen={() => setOpening(true)} />
           </div>
-          <button
-            onClick={() => setOpening(true)}
-            className="cover-cta mb-2 flex items-center gap-2 self-center rounded-full px-6 py-3 text-xs font-bold uppercase tracking-wide text-[#211a13] sm:text-sm"
-            style={{ backgroundColor: brand }}
-          >
-            Ver cardápio <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
+        ) : (
+          <div className={`menu-cover flex flex-col justify-between bg-[var(--cv-cover)] p-8 text-center sm:p-10 ${opening ? "is-opening" : ""}`}>
+            <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.4em]" style={{ color: brand }}>Cardápio</span>
+            <div className="flex flex-1 flex-col items-center justify-center gap-5">
+              <Logo company={company} brand={brand} size="h-24 w-24" icon="h-9 w-9" />
+              <div>
+                <h1 className="font-display text-2xl font-bold leading-tight text-[var(--cv-title)] sm:text-3xl">{company.name}</h1>
+                <div className="mx-auto mt-3 h-px w-12" style={{ backgroundColor: brand }} />
+                {company.tagline && <p className="mx-auto mt-3 max-w-[22ch] text-xs uppercase tracking-[0.15em] text-[var(--cv-muted)] sm:text-sm">{company.tagline}</p>}
+              </div>
+            </div>
+            <button
+              onClick={() => setOpening(true)}
+              className="cover-cta mb-2 flex items-center gap-2 self-center rounded-full px-6 py-3 text-xs font-bold uppercase tracking-wide text-[var(--cv-on-accent)] sm:text-sm"
+              style={{ backgroundColor: brand }}
+            >
+              Ver cardápio <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     )}
 
@@ -107,7 +123,9 @@ export function CoverTemplate(s: Storefront) {
       {/* Telas largas: o cardápio aberto de uma vez — três painéis lado a lado. */}
       <div className="relative hidden min-h-screen xl:block">
         <div className="mx-auto grid h-screen max-w-[1360px] grid-cols-3 items-center gap-6 px-8 py-8">
-          <CoverPanel company={company} brand={brand} />
+          {mode === "light"
+            ? <div className={`${PANEL} relative`}><LightCover company={company} /></div>
+            : <CoverPanel company={company} brand={brand} />}
           <MenuPanel s={s} brand={brand} />
           <CartPanel s={s} brand={brand} />
         </div>
@@ -177,7 +195,7 @@ function MobileMenu({ s, brand }: { s: Storefront; brand: string }) {
           <button
             onClick={() => s.setCartOpen(true)}
             aria-label={`Ver pedido${s.totalItems ? `, ${s.totalItems} ${s.totalItems === 1 ? "item" : "itens"}` : ""}`}
-            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#211a13]"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--cv-on-accent)]"
             style={{ backgroundColor: brand }}
           >
             <ShoppingBag className="h-[18px] w-[18px]" />
@@ -198,7 +216,7 @@ function MobileMenu({ s, brand }: { s: Storefront; brand: string }) {
                   data-tab={category}
                   onClick={() => jumpTo(category)}
                   className="shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-semibold transition"
-                  style={on ? { backgroundColor: brand, borderColor: brand, color: "#211a13" } : { borderColor: "var(--cv-line)", color: "var(--cv-muted)" }}
+                  style={on ? { backgroundColor: brand, borderColor: brand, color: "var(--cv-on-accent)" } : { borderColor: "var(--cv-line)", color: "var(--cv-muted)" }}
                 >
                   {category}
                 </button>
@@ -235,7 +253,7 @@ function MobileMenu({ s, brand }: { s: Storefront; brand: string }) {
                       <button
                         onClick={() => s.add(item.id)}
                         aria-label={`Adicionar ${item.name}`}
-                        className="absolute -bottom-2 -right-2 flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-sm font-bold text-[#211a13] shadow-lg ring-2 ring-[var(--cv-page)]"
+                        className="absolute -bottom-2 -right-2 flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-sm font-bold text-[var(--cv-on-accent)] shadow-lg ring-2 ring-[var(--cv-page)]"
                         style={{ backgroundColor: brand }}
                       >
                         {qty > 0 ? qty : <Plus className="h-5 w-5" />}
@@ -307,7 +325,7 @@ function MenuPanel({ s, brand }: { s: Storefront; brand: string }) {
               <p className="line-clamp-1 text-xs text-[var(--cv-faint)]">{item.description}</p>
               <p className="mt-0.5 text-sm font-bold" style={{ color: brand }}>{money(item.price)}</p>
             </div>
-            <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#211a13]" style={{ backgroundColor: brand }}><Plus className="h-4 w-4" /></button>
+            <button onClick={() => s.add(item.id)} aria-label={`Adicionar ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--cv-on-accent)]" style={{ backgroundColor: brand }}><Plus className="h-4 w-4" /></button>
           </div>
         ))}
       </div>
@@ -320,7 +338,7 @@ function CartPanel({ s, brand }: { s: Storefront; brand: string }) {
     <div className={`${PANEL} p-6`}>
       <div className="flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-bold text-[var(--cv-title)]">Meu carrinho</h2>
-        <span className="relative"><ShoppingBag className="h-5 w-5 text-[var(--cv-faint)]" />{s.totalItems > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-[#211a13]" style={{ backgroundColor: brand }}>{s.totalItems}</span>}</span>
+        <span className="relative"><ShoppingBag className="h-5 w-5 text-[var(--cv-faint)]" />{s.totalItems > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-[var(--cv-on-accent)]" style={{ backgroundColor: brand }}>{s.totalItems}</span>}</span>
       </div>
 
       {s.cartDetails.length === 0 ? (
@@ -355,7 +373,7 @@ function CartPanel({ s, brand }: { s: Storefront; brand: string }) {
             {s.serviceFee > 0 && <div className="flex justify-between text-[var(--cv-muted)]"><span>Taxa de serviço</span><span>{money(s.serviceFee)}</span></div>}
             <div className="flex justify-between text-base font-bold text-[var(--cv-title)]"><span>Total</span><span style={{ color: brand }}>{money(s.total)}</span></div>
           </div>
-          <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full shrink-0 rounded-xl font-semibold text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
+          <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full shrink-0 rounded-xl font-semibold text-[var(--cv-on-accent)] hover:opacity-90" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>
           <p className="mt-3 flex shrink-0 items-center justify-center gap-1.5 text-[11px] text-[var(--cv-faint)]"><ShieldCheck className="h-3.5 w-3.5" /> Ambiente seguro</p>
           <div className="mt-3 flex shrink-0 items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--cv-faint)]">
             <span className="rounded border border-[var(--cv-line)] px-1.5 py-0.5">Pix</span>
