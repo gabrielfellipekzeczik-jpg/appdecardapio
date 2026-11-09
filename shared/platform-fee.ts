@@ -46,3 +46,15 @@ export function retainedPlatformFee(payment: {
 export function feeWasRetained(retained: number, expected: number): boolean {
   return expected <= 0 || retained + 0.005 >= expected - 0.01;
 }
+
+/** Pagamentos que passam pelo app (Mercado Pago): só neles existe taxa de serviço. */
+export const ONLINE_PAYMENT_METHODS = ["mercadopago", "mercadopago_link"];
+
+/**
+ * Taxa de serviço paga pelo cliente nos pagamentos online, sobre itens + entrega.
+ * O restaurante recebe o valor cheio; a taxa vai para a plataforma.
+ */
+export function serviceFeeFor(baseAmount: number, percent: number | null | undefined): number {
+  if (!percent || !isValidFeePercent(percent) || baseAmount <= 0) return 0;
+  return requiredFeeAmount(baseAmount, percent);
+}

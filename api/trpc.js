@@ -32,11 +32,16 @@ function retainedPlatformFee(payment) {
 function feeWasRetained(retained, expected) {
   return expected <= 0 || retained + 5e-3 >= expected - 0.01;
 }
-var MAX_PLATFORM_FEE_PERCENT;
+function serviceFeeFor(baseAmount, percent) {
+  if (!percent || !isValidFeePercent(percent) || baseAmount <= 0) return 0;
+  return requiredFeeAmount(baseAmount, percent);
+}
+var MAX_PLATFORM_FEE_PERCENT, ONLINE_PAYMENT_METHODS;
 var init_platform_fee = __esm({
   "shared/platform-fee.ts"() {
     "use strict";
     MAX_PLATFORM_FEE_PERCENT = 30;
+    ONLINE_PAYMENT_METHODS = ["mercadopago", "mercadopago_link"];
   }
 });
 
@@ -117,9 +122,9 @@ function buildFinanceReport(from, to, sourceOrders, sourceExpenses, items) {
   });
   const approved = orders2.filter((order) => order.paymentStatus === "approved");
   const pending = orders2.filter((order) => order.paymentStatus === "pending");
-  const revenue = approved.reduce((sum, order) => sum + amount(order.total), 0);
+  const revenue = approved.reduce((sum, order) => sum + amount(order.total) - amount(order.platformFeeAmount), 0);
   const expensesTotal = expenses2.reduce((sum, expense) => sum + amount(expense.amount), 0);
-  const pendingRevenue = pending.reduce((sum, order) => sum + amount(order.total), 0);
+  const pendingRevenue = pending.reduce((sum, order) => sum + amount(order.total) - amount(order.platformFeeAmount), 0);
   const platformFees = approved.reduce((sum, order) => sum + amount(order.platformFeeAmount), 0);
   const days = Math.max(1, Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 864e5) + 1);
   const monthly = days > 90;
@@ -148,7 +153,7 @@ function buildFinanceReport(from, to, sourceOrders, sourceExpenses, items) {
   for (const order of approved) {
     const point = buckets.get(bucket(order.paymentApprovedAt || order.createdAt));
     if (point) {
-      point.revenue += amount(order.total);
+      point.revenue += amount(order.total) - amount(order.platformFeeAmount);
       point.orders += 1;
     }
   }
@@ -169,7 +174,7 @@ function buildFinanceReport(from, to, sourceOrders, sourceExpenses, items) {
     const key = order.paymentMethod || "pending";
     const name = PAYMENT_LABELS[key] ?? key.replaceAll("_", " ");
     const value = methods.get(name) ?? { name, revenue: 0, count: 0 };
-    value.revenue += amount(order.total);
+    value.revenue += amount(order.total) - amount(order.platformFeeAmount);
     value.count += 1;
     methods.set(name, value);
   }
@@ -568,7 +573,7 @@ function testCreateCustomerOrder(input) {
     paymentMethod: input.paymentMethod ?? "pending",
     subtotal: subtotal.toFixed(2),
     deliveryFee: deliveryFee.toFixed(2),
-    total: (subtotal + deliveryFee).toFixed(2),
+    total: (subtotal + deliveryFee + serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent)).toFixed(2),
     deliveryAddress: input.pickup ? PICKUP_ADDRESS : `${input.address.trim()}, n\xBA ${input.addressNumber.trim()}`,
     customerAccessTokenHash: createHash("sha256").update(input.accessToken).digest("hex"),
     customerTrackingTokenHash: createHash("sha256").update(input.customerTrackingToken).digest("hex"),
@@ -576,7 +581,7 @@ function testCreateCustomerOrder(input) {
     trackingLatitude: null,
     trackingLongitude: null,
     trackingUpdatedAt: null,
-    platformFeeAmount: null,
+    platformFeeAmount: input.serviceFeePercent ? serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent).toFixed(2) : null,
     paymentApprovedAt: null,
     notes: input.notes ?? null,
     trackingUrl: null,
@@ -736,6 +741,7 @@ var DEMO_COMPANY_ID, now, categories, menu, customers, orders, inventoryItems, i
 var init_testStore = __esm({
   "server/testStore.ts"() {
     "use strict";
+    init_platform_fee();
     init_checkout();
     init_finance();
     init_store_rules();
@@ -1093,7 +1099,8 @@ async function createCustomerOrder(companyId, input) {
     input.addressNumber,
     input.deliveryFee ?? 0
   );
-  const total = subtotal + deliveryFee;
+  const serviceFee = serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent);
+  const total = Math.round((subtotal + deliveryFee + serviceFee) * 100) / 100;
   const accessTokenHash = createHash2("sha256").update(input.accessToken).digest("hex");
   const customerTrackingTokenHash = createHash2("sha256").update(input.customerTrackingToken).digest("hex");
   const customerWrite = await db.from("customers").upsert(
@@ -1123,6 +1130,7 @@ async function createCustomerOrder(companyId, input) {
     subtotal: subtotal.toFixed(2),
     deliveryFee: deliveryFee.toFixed(2),
     total: total.toFixed(2),
+    ...serviceFee > 0 ? { platformFeeAmount: serviceFee.toFixed(2) } : {},
     deliveryAddress: fullAddress,
     deliveryQuoteId: input.deliveryQuoteId ?? null,
     customerAccessTokenHash: accessTokenHash,
@@ -1174,7 +1182,9 @@ async function createCustomerOrder(companyId, input) {
   return {
     orderId: order.id,
     persisted: true,
-    customerTrackingToken: input.customerTrackingToken
+    customerTrackingToken: input.customerTrackingToken,
+    total,
+    serviceFee
   };
 }
 async function countRecentUnpaidOrders(companyId, phone) {
@@ -1881,6 +1891,7 @@ var SCHEMA, _db, TRACKING_COLUMNS, DEFAULT_MENU_CATEGORIES, ORDER_STATUS_FLOW, B
 var init_db = __esm({
   "server/db.ts"() {
     "use strict";
+    init_platform_fee();
     init_checkout();
     init_finance();
     init_payment_messages();
@@ -2141,6 +2152,7 @@ var init_companies = __esm({
 var mercadoPago_exports = {};
 __export(mercadoPago_exports, {
   PLATFORM_FEE_MISSING_MESSAGE: () => PLATFORM_FEE_MISSING_MESSAGE,
+  assertOrderFee: () => assertOrderFee,
   buildAuthorizeUrl: () => buildAuthorizeUrl,
   buildPayerDetails: () => buildPayerDetails,
   cancelPayment: () => cancelPayment,
@@ -2296,6 +2308,14 @@ async function requiredApplicationFee(companyId, transactionAmount) {
   }
   return requiredFeeAmount(transactionAmount, percent);
 }
+function assertOrderFee(fee) {
+  const value = Math.round(Number(fee ?? 0) * 100) / 100;
+  if (!(value >= 0.01)) {
+    console.error(`[mercadopago] pedido sem taxa de servi\xE7o: ${fee}`);
+    throw new Error(PLATFORM_FEE_MISSING_MESSAGE);
+  }
+  return value;
+}
 async function platformFeeReady(companyId) {
   return isValidFeePercent(await feePercentFor(companyId));
 }
@@ -2325,6 +2345,7 @@ async function ensureFeeRetained(companyId, paymentId, payment, expectedFee) {
   return false;
 }
 async function feePercentFor(companyId) {
+  if (isTestMode()) return ENV.platformFeePercent;
   const { data } = await getDb().from("companies").select("mp_fee_percent").eq("id", companyId).maybeSingle();
   return effectiveFeePercent(
     data?.mp_fee_percent,
@@ -2334,10 +2355,7 @@ async function feePercentFor(companyId) {
 async function createPayment(input) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
-  const applicationFee = await requiredApplicationFee(
-    input.companyId,
-    input.transactionAmount
-  );
+  const applicationFee = assertOrderFee(input.applicationFee);
   const body = {
     transaction_amount: input.transactionAmount,
     application_fee: applicationFee,
@@ -2425,10 +2443,7 @@ async function createPaymentLink(input) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials)
     throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
-  const applicationFee = await requiredApplicationFee(
-    input.companyId,
-    input.transactionAmount
-  );
+  const applicationFee = assertOrderFee(input.applicationFee);
   const body = {
     items: [
       {
@@ -2518,6 +2533,7 @@ var init_mercadoPago = __esm({
   "server/integrations/mercadoPago.ts"() {
     "use strict";
     init_env();
+    init_testData();
     init_db();
     init_platform_fee();
     MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
@@ -3199,6 +3215,7 @@ async function createManualPaymentLink(companyId, orderId, payerEmail) {
     companyId,
     orderId,
     transactionAmount: Number(found.order.total),
+    applicationFee: Number(found.order.platformFeeAmount ?? 0),
     description: `Pedido #${orderId} \u2014 ${company?.name ?? "Sua loja"}`,
     payerEmail
   });
@@ -3237,6 +3254,16 @@ async function estimateFor(company, dropoffAddress) {
       `Entregamos at\xE9 ${pricing.maxKm} km. Este endere\xE7o fica a ${distanceKm.toFixed(1).replace(".", ",")} km.`
     );
   return { fee: estimateDeliveryFee(distanceKm, pricing), distanceKm };
+}
+async function serviceFeePercentFor(companyId, paymentMethod) {
+  if (!ONLINE_PAYMENT_METHODS.includes(paymentMethod ?? "")) return void 0;
+  const percent = await feePercentFor(companyId);
+  if (!isValidFeePercent(percent))
+    throw new TRPCError2({
+      code: "PRECONDITION_FAILED",
+      message: PLATFORM_FEE_MISSING_MESSAGE
+    });
+  return percent;
 }
 var botProcedure = publicProcedure.use(({ ctx, next }) => {
   const expected = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -3370,12 +3397,22 @@ var openingHoursInput = z2.array(
 var appRouter = router({
   system: systemRouter,
   bot: router({
-    quote: botProcedure.input(botOrderInput).mutation(async ({ input }) => {
+    quote: botProcedure.input(
+      botOrderInput.extend({
+        paymentMode: z2.enum(["mercadopago_link", "cash_on_delivery"]).default("mercadopago_link")
+      })
+    ).mutation(async ({ input }) => {
       const prepared = await prepareBotOrder(input);
+      const percent = await serviceFeePercentFor(
+        prepared.company.id,
+        input.paymentMode
+      );
+      const serviceFee = serviceFeeFor(prepared.total, percent);
       return {
         subtotal: prepared.subtotal,
         deliveryFee: prepared.deliveryFee,
-        total: prepared.total,
+        serviceFee,
+        total: Math.round((prepared.total + serviceFee) * 100) / 100,
         address: prepared.address
       };
     }),
@@ -3400,6 +3437,10 @@ var appRouter = router({
         addressNumber: prepared.pickup ? "s/n" : [input.addressNumber, input.complement].filter(Boolean).join(", "),
         pickup: prepared.pickup,
         deliveryFee: prepared.deliveryFee,
+        serviceFeePercent: await serviceFeePercentFor(
+          prepared.company.id,
+          input.paymentMode
+        ),
         accessToken: randomUUID(),
         customerTrackingToken: trackingToken,
         paymentMethod: input.paymentMode,
@@ -3417,8 +3458,9 @@ var appRouter = router({
       const base = ENV.publicAppUrl;
       return {
         orderId: created.orderId,
-        total: prepared.total,
+        total: ("total" in created ? created.total : void 0) ?? prepared.total,
         deliveryFee: prepared.deliveryFee,
+        serviceFee: "serviceFee" in created ? created.serviceFee : 0,
         paymentLink: link?.paymentLink ?? null,
         trackingUrl: base ? `${base}/rastrear/${encodeURIComponent(prepared.company.slug)}/${trackingToken}` : null
       };
@@ -3722,6 +3764,10 @@ var appRouter = router({
         pickup,
         deliveryFee: fee,
         deliveryQuoteId: quoteId,
+        serviceFeePercent: await serviceFeePercentFor(
+          company.id,
+          input.paymentMethod
+        ),
         accessToken: requireCustomerAccessToken(ctx.req),
         customerTrackingToken: randomUUID(),
         customerEmail: input.email
@@ -3791,6 +3837,10 @@ var appRouter = router({
         ...orderInput,
         deliveryFee,
         deliveryQuoteId,
+        serviceFeePercent: await serviceFeePercentFor(
+          ctx.companyId,
+          paymentMode
+        ),
         accessToken: randomUUID(),
         customerTrackingToken: randomUUID(),
         paymentMethod: paymentMode
@@ -4216,13 +4266,16 @@ var appRouter = router({
     // public key to initialize the Brick client-side. Never expose the access token.
     checkoutConfig: publicProcedure.input(z2.object({ companySlug: z2.string() })).query(async ({ input }) => {
       const company = await requireCompanyBySlug(input.companySlug);
-      const [credentials, deliveryProvider, feeReady] = await Promise.all([
+      const [credentials, deliveryProvider, feePercent] = await Promise.all([
         getConnectedCredentials(company.id),
         quoteModeFor(company),
-        platformFeeReady(company.id)
+        feePercentFor(company.id)
       ]);
+      const feeReady = isValidFeePercent(feePercent);
       return {
         connected: Boolean(credentials) && feeReady,
+        /** Taxa de serviço (%) somada ao total no pagamento online. */
+        serviceFeePercent: feeReady ? feePercent : null,
         publicKey: credentials?.publicKey ?? null,
         deliveryProvider: deliveryProvider ?? null
       };
@@ -4366,6 +4419,7 @@ var appRouter = router({
         companyId: company.id,
         orderId: input.orderId,
         transactionAmount: Number(order.order.total),
+        applicationFee: Number(order.order.platformFeeAmount ?? 0),
         description: `Pedido #${input.orderId} \u2014 ${company.name}`,
         payer: {
           email: input.payerEmail,

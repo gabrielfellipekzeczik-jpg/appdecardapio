@@ -1,3 +1,4 @@
+import { serviceFeeFor } from "@shared/platform-fee";
 import { createHash } from "node:crypto";
 import { calculateDeliveryFee } from "@shared/checkout";
 import { buildFinanceReport } from "@shared/finance";
@@ -484,6 +485,7 @@ export function testCreateCustomerOrder(input: {
   paymentMethod?: string;
   pickup?: boolean;
   notes?: string;
+  serviceFeePercent?: number;
   items: Array<{ menuItemId: number; quantity: number; observation?: string }>;
 }) {
   const timestamp = now();
@@ -531,7 +533,7 @@ export function testCreateCustomerOrder(input: {
     paymentMethod: input.paymentMethod ?? "pending",
     subtotal: subtotal.toFixed(2),
     deliveryFee: deliveryFee.toFixed(2),
-    total: (subtotal + deliveryFee).toFixed(2),
+    total: (subtotal + deliveryFee + serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent)).toFixed(2),
     deliveryAddress: input.pickup
       ? PICKUP_ADDRESS
       : `${input.address.trim()}, nº ${input.addressNumber.trim()}`,
@@ -545,7 +547,9 @@ export function testCreateCustomerOrder(input: {
     trackingLatitude: null,
     trackingLongitude: null,
     trackingUpdatedAt: null,
-    platformFeeAmount: null,
+    platformFeeAmount: input.serviceFeePercent
+      ? serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent).toFixed(2)
+      : null,
     paymentApprovedAt: null,
     notes: input.notes ?? null,
     trackingUrl: null,

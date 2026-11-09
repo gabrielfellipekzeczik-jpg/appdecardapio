@@ -24,7 +24,9 @@ describe("public orders contract", () => {
     } as never);
     const order = await caller.orders.byId({ companySlug: "loja-teste", id: created.orderId! });
     expect(Number(order?.order.subtotal)).toBe(24.9);
-    expect(Number(order?.order.total)).toBe(24.9);
+    // Pagamento online: a taxa de serviço (5% nos testes) é somada ao total e gravada no pedido.
+    expect(Number(order?.order.total)).toBe(26.15);
+    expect(Number(order?.order.platformFeeAmount)).toBe(1.25);
     expect(order?.items[0]?.itemName).toBe("Caseira da semana");
     expect(created.customerTrackingToken).toMatch(/^[0-9a-f-]{36}$/i);
     const tracking = await caller.tracking.customer({ token: created.customerTrackingToken! });

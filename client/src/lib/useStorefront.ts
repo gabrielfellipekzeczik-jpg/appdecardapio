@@ -1,3 +1,4 @@
+import { serviceFeeFor } from "@shared/platform-fee";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getCheckoutState } from "@shared/checkout";
@@ -447,7 +448,12 @@ export function useStorefront(slug: string) {
     customer.addressNumber,
     deliveryQuote?.fee ?? 0
   );
-  const total = subtotal + delivery;
+  // Taxa de serviço: paga pelo cliente só no pagamento online; na entrega não há.
+  const cashTotal = Math.round((subtotal + delivery) * 100) / 100;
+  const serviceFee = checkoutState.paymentEnabled
+    ? serviceFeeFor(cashTotal, checkoutConfigQuery.data?.serviceFeePercent)
+    : 0;
+  const total = Math.round((cashTotal + serviceFee) * 100) / 100;
   const fingerprintFor = (method: OrderPaymentMethod) =>
     JSON.stringify([
       cartDetails.map(({ id, qty, observation }) => [id, qty, observation]),
@@ -599,7 +605,7 @@ export function useStorefront(slug: string) {
       changeFor.trim() ? `Troco para ${changeFor.trim()}` : ""
     );
     if (!id) throw new Error("Não foi possível criar o pedido");
-    finishOrder({ payOnDelivery: true, pickup: isPickup, total });
+    finishOrder({ payOnDelivery: true, pickup: isPickup, total: cashTotal });
   };
   const handleBrickSubmit = async (formData: {
     payment_method_id: string;
@@ -701,6 +707,8 @@ export function useStorefront(slug: string) {
     totalItems,
     subtotal,
     delivery,
+    serviceFee,
+    cashTotal,
     total,
     deliveryQuote,
     deliveryQuoteLoading,

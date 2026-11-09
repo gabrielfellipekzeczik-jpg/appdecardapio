@@ -271,6 +271,7 @@ export class Session {
         if (!items.length) return null;
         const quote = await this.app.quote({
           companyId: this.companyId,
+          paymentMode: decision.order.payment === "cash" ? "cash_on_delivery" : "mercadopago_link",
           items: items.map((item) => ({ menuItemId: item.menuItemId, quantity: item.quantity })),
           fulfillment: decision.order.fulfillment,
           address: decision.order.address,

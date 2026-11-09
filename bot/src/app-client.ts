@@ -8,6 +8,8 @@ type BaseOrder = {
   address: string;
   addressNumber: string;
   complement: string;
+  /** Define se a taxa de serviço (pagamento online) entra no total. */
+  paymentMode?: "mercadopago_link" | "cash_on_delivery";
 };
 
 export class AppClient {
@@ -29,7 +31,7 @@ export class AppClient {
   }
 
   quote(input: BaseOrder) {
-    return this.call<{ subtotal: number; deliveryFee: number; total: number; address: string | null }>("bot.quote", input);
+    return this.call<{ subtotal: number; deliveryFee: number; serviceFee?: number; total: number; address: string | null }>("bot.quote", input);
   }
 
   createOrder(input: BaseOrder & { name: string; phone: string; paymentMode: "mercadopago_link" | "cash_on_delivery" }) {

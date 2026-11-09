@@ -224,6 +224,7 @@ function CartPanel({ s, brand }: { s: Storefront; brand: string }) {
           <div className="mt-4 shrink-0 space-y-2 border-t border-white/10 pt-4 text-sm">
             <div className="flex justify-between text-[#b3a793]"><span>Subtotal</span><span>R$ {s.subtotal.toFixed(2).replace(".", ",")}</span></div>
             <div className="flex justify-between text-[#b3a793]"><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>
+            {s.serviceFee > 0 && <div className="flex justify-between text-[#b3a793]"><span>Taxa de serviço</span><span>R$ {s.serviceFee.toFixed(2).replace(".", ",")}</span></div>}
             <div className="flex justify-between text-base font-bold text-[#f6ecd9]"><span>Total</span><span style={{ color: brand }}>R$ {s.total.toFixed(2).replace(".", ",")}</span></div>
           </div>
           <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full shrink-0 rounded-xl font-semibold text-[#211a13] hover:opacity-90" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>

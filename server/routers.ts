@@ -1,4 +1,9 @@
-import { MAX_PLATFORM_FEE_PERCENT } from "@shared/platform-fee";
+import {
+  MAX_PLATFORM_FEE_PERCENT,
+  ONLINE_PAYMENT_METHODS,
+  isValidFeePercent,
+  serviceFeeFor,
+} from "@shared/platform-fee";
 import { TRPCError } from "@trpc/server";
 import { eventForStatus, isForwardMove, notifyOrderEvent } from "./notifications";
 import { clientIp, createRateLimiter } from "./_core/rateLimit";
@@ -93,7 +98,8 @@ import {
   createPayment,
   createPaymentLink,
   ensureFeeRetained,
-  platformFeeReady,
+  feePercentFor,
+  PLATFORM_FEE_MISSING_MESSAGE,
   getPayment,
   getPaymentLink,
   getConnectedCredentials,
@@ -226,6 +232,7 @@ async function createManualPaymentLink(
     companyId,
     orderId,
     transactionAmount: Number(found.order.total),
+    applicationFee: Number(found.order.platformFeeAmount ?? 0),
     description: `Pedido #${orderId} — ${company?.name ?? "Sua loja"}`,
     payerEmail,
   });
@@ -283,6 +290,21 @@ async function estimateFor(company: DeliveryCompany, dropoffAddress: string) {
       `Entregamos até ${pricing.maxKm} km. Este endereço fica a ${distanceKm.toFixed(1).replace(".", ",")} km.`
     );
   return { fee: estimateDeliveryFee(distanceKm, pricing), distanceKm };
+}
+
+/** Taxa de serviço (%) cobrada do cliente quando o pagamento é online; sem taxa válida não há venda online. */
+async function serviceFeePercentFor(
+  companyId: number,
+  paymentMethod: string | undefined
+): Promise<number | undefined> {
+  if (!ONLINE_PAYMENT_METHODS.includes(paymentMethod ?? "")) return undefined;
+  const percent = await feePercentFor(companyId);
+  if (!isValidFeePercent(percent))
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: PLATFORM_FEE_MISSING_MESSAGE,
+    });
+  return percent;
 }
 
 /** O robô do WhatsApp prova quem é com a chave de serviço do Supabase, que só ele e o app conhecem. */
@@ -454,15 +476,29 @@ const openingHoursInput = z
 export const appRouter = router({
   system: systemRouter,
   bot: router({
-    quote: botProcedure.input(botOrderInput).mutation(async ({ input }) => {
-      const prepared = await prepareBotOrder(input);
-      return {
-        subtotal: prepared.subtotal,
-        deliveryFee: prepared.deliveryFee,
-        total: prepared.total,
-        address: prepared.address,
-      };
-    }),
+    quote: botProcedure
+      .input(
+        botOrderInput.extend({
+          paymentMode: z
+            .enum(["mercadopago_link", "cash_on_delivery"])
+            .default("mercadopago_link"),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const prepared = await prepareBotOrder(input);
+        const percent = await serviceFeePercentFor(
+          prepared.company.id,
+          input.paymentMode
+        );
+        const serviceFee = serviceFeeFor(prepared.total, percent);
+        return {
+          subtotal: prepared.subtotal,
+          deliveryFee: prepared.deliveryFee,
+          serviceFee,
+          total: Math.round((prepared.total + serviceFee) * 100) / 100,
+          address: prepared.address,
+        };
+      }),
     createOrder: botProcedure
       .input(
         botOrderInput.extend({
@@ -491,6 +527,10 @@ export const appRouter = router({
             : [input.addressNumber, input.complement].filter(Boolean).join(", "),
           pickup: prepared.pickup,
           deliveryFee: prepared.deliveryFee,
+          serviceFeePercent: await serviceFeePercentFor(
+            prepared.company.id,
+            input.paymentMode
+          ),
           accessToken: randomUUID(),
           customerTrackingToken: trackingToken,
           paymentMethod: input.paymentMode,
@@ -511,8 +551,9 @@ export const appRouter = router({
         const base = ENV.publicAppUrl;
         return {
           orderId: created.orderId,
-          total: prepared.total,
+          total: ("total" in created ? created.total : undefined) ?? prepared.total,
           deliveryFee: prepared.deliveryFee,
+          serviceFee: "serviceFee" in created ? created.serviceFee : 0,
           paymentLink: link?.paymentLink ?? null,
           trackingUrl: base
             ? `${base}/rastrear/${encodeURIComponent(prepared.company.slug)}/${trackingToken}`
@@ -894,6 +935,10 @@ export const appRouter = router({
           pickup,
           deliveryFee: fee,
           deliveryQuoteId: quoteId,
+          serviceFeePercent: await serviceFeePercentFor(
+            company.id,
+            input.paymentMethod
+          ),
           accessToken: requireCustomerAccessToken(ctx.req),
           customerTrackingToken: randomUUID(),
           customerEmail: input.email,
@@ -979,6 +1024,10 @@ export const appRouter = router({
           ...orderInput,
           deliveryFee,
           deliveryQuoteId,
+          serviceFeePercent: await serviceFeePercentFor(
+            ctx.companyId,
+            paymentMode
+          ),
           accessToken: randomUUID(),
           customerTrackingToken: randomUUID(),
           paymentMethod: paymentMode,
@@ -1496,14 +1545,17 @@ export const appRouter = router({
       .input(z.object({ companySlug: z.string() }))
       .query(async ({ input }) => {
         const company = await requireCompanyBySlug(input.companySlug);
-        const [credentials, deliveryProvider, feeReady] = await Promise.all([
+        const [credentials, deliveryProvider, feePercent] = await Promise.all([
           getConnectedCredentials(company.id),
           quoteModeFor(company),
-          platformFeeReady(company.id),
+          feePercentFor(company.id),
         ]);
+        const feeReady = isValidFeePercent(feePercent);
         // Sem taxa da plataforma válida, a loja não oferece pagamento online.
         return {
           connected: Boolean(credentials) && feeReady,
+          /** Taxa de serviço (%) somada ao total no pagamento online. */
+          serviceFeePercent: feeReady ? feePercent : null,
           publicKey: credentials?.publicKey ?? null,
           deliveryProvider: deliveryProvider ?? null,
         };
@@ -1673,6 +1725,7 @@ export const appRouter = router({
           companyId: company.id,
           orderId: input.orderId,
           transactionAmount: Number(order.order.total),
+          applicationFee: Number(order.order.platformFeeAmount ?? 0),
           description: `Pedido #${input.orderId} — ${company.name}`,
           payer: {
             email: input.payerEmail,

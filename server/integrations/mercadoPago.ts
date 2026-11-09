@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { isTestMode } from "../testData";
 import { getDb, getIntegrationCredentials, saveIntegrationCredentials } from "../db";
 import {
   effectiveFeePercent,
@@ -152,6 +153,8 @@ export async function saveCredentials(
 }
 
 export type CreatePaymentInput = {
+  /** Taxa de serviço gravada no pedido. */
+  applicationFee: number;
   companyId: number;
   orderId: number;
   transactionAmount: number;
@@ -242,6 +245,16 @@ export async function requiredApplicationFee(
   return requiredFeeAmount(transactionAmount, percent);
 }
 
+/** A taxa vem gravada no pedido (paga pelo cliente); sem ela não existe pagamento online. */
+export function assertOrderFee(fee: number | null | undefined): number {
+  const value = Math.round(Number(fee ?? 0) * 100) / 100;
+  if (!(value >= 0.01)) {
+    console.error(`[mercadopago] pedido sem taxa de serviço: ${fee}`);
+    throw new Error(PLATFORM_FEE_MISSING_MESSAGE);
+  }
+  return value;
+}
+
 export async function platformFeeReady(companyId: number): Promise<boolean> {
   return isValidFeePercent(await feePercentFor(companyId));
 }
@@ -285,6 +298,7 @@ export async function ensureFeeRetained(
 
 /** Taxa definida pelo dono da plataforma para o restaurante, ou a padrão. */
 export async function feePercentFor(companyId: number): Promise<number> {
+  if (isTestMode()) return ENV.platformFeePercent;
   const { data } = await getDb()
     .from("companies")
     .select("mp_fee_percent")
@@ -300,10 +314,7 @@ export async function createPayment(input: CreatePaymentInput) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
 
-  const applicationFee = await requiredApplicationFee(
-    input.companyId,
-    input.transactionAmount
-  );
+  const applicationFee = assertOrderFee(input.applicationFee);
 
   const body = {
     transaction_amount: input.transactionAmount,
@@ -443,16 +454,15 @@ export async function createPaymentLink(input: {
   companyId: number;
   orderId: number;
   transactionAmount: number;
+  /** Taxa de serviço gravada no pedido. */
+  applicationFee: number;
   description: string;
   payerEmail?: string;
 }) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials)
     throw new Error("Mercado Pago não está conectado para esta loja.");
-  const applicationFee = await requiredApplicationFee(
-    input.companyId,
-    input.transactionAmount
-  );
+  const applicationFee = assertOrderFee(input.applicationFee);
   const body = {
     items: [
       {

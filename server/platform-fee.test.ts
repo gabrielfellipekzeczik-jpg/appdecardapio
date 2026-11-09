@@ -32,3 +32,23 @@ describe("garantia da taxa da plataforma", () => {
     expect(feeWasRetained(0.02, 0.05)).toBe(false);
   });
 });
+
+describe("taxa de serviço paga pelo cliente", () => {
+  it("soma a taxa sobre itens + entrega no pagamento online", async () => {
+    const { serviceFeeFor } = await import("@shared/platform-fee");
+    expect(serviceFeeFor(8.5, 3)).toBe(0.26);
+    expect(serviceFeeFor(100, 3)).toBe(3);
+  });
+  it("não cobra taxa sem porcentagem válida ou sem valor", async () => {
+    const { serviceFeeFor } = await import("@shared/platform-fee");
+    expect(serviceFeeFor(8.5, null)).toBe(0);
+    expect(serviceFeeFor(8.5, 0)).toBe(0);
+    expect(serviceFeeFor(0, 3)).toBe(0);
+  });
+  it("recusa pagamento online de pedido sem taxa gravada", async () => {
+    const { assertOrderFee } = await import("./integrations/mercadoPago");
+    expect(() => assertOrderFee(0)).toThrow(/indisponível/);
+    expect(() => assertOrderFee(null)).toThrow(/indisponível/);
+    expect(assertOrderFee(0.26)).toBe(0.26);
+  });
+});

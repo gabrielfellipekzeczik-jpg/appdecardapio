@@ -177,6 +177,7 @@ export function PremiumTemplate(s: Storefront) {
                 <div className={`mt-4 space-y-2 border-t ${BORDER} pt-4 text-sm`}>
                   <div className={`flex justify-between ${TEXT_MUTED}`}><span>Subtotal</span><span>R$ {s.subtotal.toFixed(2).replace(".", ",")}</span></div>
                   <div className={`flex justify-between ${TEXT_MUTED}`}><span>Entrega</span><span>R$ {s.delivery.toFixed(2).replace(".", ",")}</span></div>
+                  {s.serviceFee > 0 && <div className={`flex justify-between ${TEXT_MUTED}`}><span>Taxa de serviço</span><span>R$ {s.serviceFee.toFixed(2).replace(".", ",")}</span></div>}
                   <div className="flex justify-between text-base font-bold"><span>Total</span><span style={{ color: brand }}>R$ {s.total.toFixed(2).replace(".", ",")}</span></div>
                 </div>
                 <Button onClick={() => s.setCartOpen(true)} className="mt-4 h-11 w-full rounded-xl font-semibold text-[#211a13]" style={{ backgroundColor: brand }}>Finalizar pedido <ArrowRight className="ml-2 h-4 w-4" /></Button>

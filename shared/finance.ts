@@ -21,9 +21,10 @@ export function buildFinanceReport(from: string, to: string, sourceOrders: Finan
   const expenses = sourceExpenses.filter((expense) => { const key = brazilDay(expense.incurredAt); return key >= from && key <= to; });
   const approved = orders.filter((order) => order.paymentStatus === "approved");
   const pending = orders.filter((order) => order.paymentStatus === "pending");
-  const revenue = approved.reduce((sum, order) => sum + amount(order.total), 0);
+  // A taxa de serviço é paga pelo cliente e vai para a plataforma: não é receita da loja.
+  const revenue = approved.reduce((sum, order) => sum + amount(order.total) - amount(order.platformFeeAmount), 0);
   const expensesTotal = expenses.reduce((sum, expense) => sum + amount(expense.amount), 0);
-  const pendingRevenue = pending.reduce((sum, order) => sum + amount(order.total), 0);
+  const pendingRevenue = pending.reduce((sum, order) => sum + amount(order.total) - amount(order.platformFeeAmount), 0);
   const platformFees = approved.reduce((sum, order) => sum + amount(order.platformFeeAmount), 0);
   const days = Math.max(1, Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1);
   const monthly = days > 90;
@@ -46,12 +47,12 @@ export function buildFinanceReport(from: string, to: string, sourceOrders: Finan
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
   }
-  for (const order of approved) { const point = buckets.get(bucket(order.paymentApprovedAt || order.createdAt)); if (point) { point.revenue += amount(order.total); point.orders += 1; } }
+  for (const order of approved) { const point = buckets.get(bucket(order.paymentApprovedAt || order.createdAt)); if (point) { point.revenue += amount(order.total) - amount(order.platformFeeAmount); point.orders += 1; } }
   for (const expense of expenses) { const point = buckets.get(bucket(expense.incurredAt)); if (point) point.expenses += amount(expense.amount); }
   const categories = new Map<string, { name: string; value: number; count: number }>();
   for (const expense of expenses) { const name = expense.category?.trim() || "Outros"; const value = categories.get(name) ?? { name, value: 0, count: 0 }; value.value += amount(expense.amount); value.count += 1; categories.set(name, value); }
   const methods = new Map<string, { name: string; revenue: number; count: number }>();
-  for (const order of approved) { const key = order.paymentMethod || "pending"; const name = PAYMENT_LABELS[key] ?? key.replaceAll("_", " "); const value = methods.get(name) ?? { name, revenue: 0, count: 0 }; value.revenue += amount(order.total); value.count += 1; methods.set(name, value); }
+  for (const order of approved) { const key = order.paymentMethod || "pending"; const name = PAYMENT_LABELS[key] ?? key.replaceAll("_", " "); const value = methods.get(name) ?? { name, revenue: 0, count: 0 }; value.revenue += amount(order.total) - amount(order.platformFeeAmount); value.count += 1; methods.set(name, value); }
   const paidIds = new Set(approved.map((order) => order.id));
   const products = new Map<string, { name: string; units: number; revenue: number }>();
   for (const item of items) { if (!paidIds.has(item.orderId)) continue; const value = products.get(item.itemName) ?? { name: item.itemName, units: 0, revenue: 0 }; value.units += item.quantity; value.revenue += item.quantity * amount(item.unitPrice); products.set(item.itemName, value); }

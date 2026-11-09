@@ -19,6 +19,8 @@ export type QuotedOrder = {
   items: { menuItemId: number; name: string; quantity: number; note: string }[];
   subtotal: number;
   deliveryFee: number;
+  /** Taxa de serviço do pagamento online (paga pelo cliente). */
+  serviceFee?: number;
   total: number;
   address: string | null;
 };
@@ -91,6 +93,7 @@ export function quoteMessage(order: QuotedOrder) {
     where,
     `Subtotal: ${money(order.subtotal)}`,
     ...(order.deliveryFee > 0 ? [`Entrega: ${money(order.deliveryFee)}`] : []),
+    ...((order.serviceFee ?? 0) > 0 ? [`Taxa de serviço: ${money(order.serviceFee!)}`] : []),
     `Total: ${money(order.total)}`,
     payment,
     "",

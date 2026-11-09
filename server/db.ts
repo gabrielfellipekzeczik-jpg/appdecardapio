@@ -1,3 +1,4 @@
+import { serviceFeeFor } from "@shared/platform-fee";
 // server/db.ts — queries via Supabase SDK (SUPABASE_SERVICE_ROLE_KEY)
 // sem DATABASE_URL. Usa schema "marmitaria" isolado.
 import { createClient } from "@supabase/supabase-js";
@@ -346,6 +347,8 @@ export async function createCustomerOrder(
     notes?: string;
     deliveryFee?: number;
     deliveryQuoteId?: string | null;
+    /** Taxa da plataforma (%) somada ao total quando o pagamento é online. */
+    serviceFeePercent?: number;
     items: Array<{
       menuItemId: number;
       quantity: number;
@@ -392,7 +395,8 @@ export async function createCustomerOrder(
     input.addressNumber,
     input.deliveryFee ?? 0
   );
-  const total = subtotal + deliveryFee;
+  const serviceFee = serviceFeeFor(subtotal + deliveryFee, input.serviceFeePercent);
+  const total = Math.round((subtotal + deliveryFee + serviceFee) * 100) / 100;
   const accessTokenHash = createHash("sha256")
     .update(input.accessToken)
     .digest("hex");
@@ -434,6 +438,7 @@ export async function createCustomerOrder(
     subtotal: subtotal.toFixed(2),
     deliveryFee: deliveryFee.toFixed(2),
     total: total.toFixed(2),
+    ...(serviceFee > 0 ? { platformFeeAmount: serviceFee.toFixed(2) } : {}),
     deliveryAddress: fullAddress,
     deliveryQuoteId: input.deliveryQuoteId ?? null,
     customerAccessTokenHash: accessTokenHash,
@@ -502,6 +507,8 @@ export async function createCustomerOrder(
     orderId: order.id,
     persisted: true as const,
     customerTrackingToken: input.customerTrackingToken,
+    total,
+    serviceFee,
   };
 }
 

@@ -953,6 +953,7 @@ export function StorefrontCartCheckout(s: Storefront) {
                       </div>
                       <div className="mt-3 space-y-0.5 border-t border-dashed border-[#e1e6df] pt-2.5 text-sm text-[#788078]">
                         {(s.delivery > 0 ||
+                          s.serviceFee > 0 ||
                           s.deliveryQuoteLoading ||
                           s.deliveryQuoteError) && (
                           <>
@@ -972,6 +973,12 @@ export function StorefrontCartCheckout(s: Storefront) {
                                 <span>{money(s.delivery)}</span>
                               )}
                             </div>
+                            {s.serviceFee > 0 && (
+                              <div className="flex justify-between">
+                                <span>Taxa de serviço</span>
+                                <span>{money(s.serviceFee)}</span>
+                              </div>
+                            )}
                           </>
                         )}
                         <div className="flex items-baseline justify-between pt-1">
@@ -1117,7 +1124,7 @@ export function StorefrontCartCheckout(s: Storefront) {
                                     >
                                       {payBusy
                                         ? "Aguarde…"
-                                        : `Finalizar pedido · ${money(s.total)}`}
+                                        : `Finalizar pedido · ${money(s.cashTotal)}`}
                                     </Button>
                                   </div>
                                 )}
