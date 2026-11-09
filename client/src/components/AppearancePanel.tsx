@@ -136,6 +136,39 @@ export function AppearancePanel() {
             </button>
           ))}
         </CardContent>
+        {company.templateId === "cover" && (
+          <CardContent className="border-t border-[#eeeae3] pt-5">
+            <p className="font-semibold">Fundo do cardápio</p>
+            <p className="mt-1 text-sm text-[#776e63]">Escolha entre o visual escuro, de restaurante à noite, ou um fundo claro.</p>
+            <div role="radiogroup" aria-label="Fundo do cardápio" className="mt-3 grid grid-cols-2 gap-3">
+              {([
+                ["dark", "Escuro", "#1c150e", "#f6ecd9"],
+                ["light", "Claro", "#fffaf2", "#2a2118"],
+              ] as const).map(([value, label, bg, fg]) => {
+                const selected = (company.storefrontTheme ?? "dark") === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={updateMutation.isPending}
+                    onClick={() => updateMutation.mutate({ storefrontTheme: value })}
+                    className={`rounded-2xl border p-2 text-left transition ${selected ? "border-[#2f5d50] ring-2 ring-[#2f5d50]/20" : "border-[#e5e0d7] hover:border-[#cdbfae]"}`}
+                  >
+                    <span className="flex h-16 items-end rounded-xl p-2.5" style={{ backgroundColor: bg, color: fg }}>
+                      <span className="font-display text-sm font-bold">{company.name}</span>
+                    </span>
+                    <span className="mt-2 flex items-center justify-between px-1 text-sm font-semibold">
+                      {label}
+                      {selected && <Check className="h-4 w-4 text-[#347052]" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        )}
       </Card>
     </div>
   );

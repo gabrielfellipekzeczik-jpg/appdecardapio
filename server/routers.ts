@@ -680,6 +680,7 @@ export const appRouter = router({
           templateId: z
             .enum(["classic", "modern", "cover", "premium"])
             .optional(),
+          storefrontTheme: z.enum(["dark", "light"]).optional(),
           pickupAddress: z.string().min(5).optional(),
         })
       )

@@ -96,6 +96,8 @@ export type Company = {
   heroImageUrl: string | null;
   primaryColor: string | null;
   templateId: "classic" | "modern" | "cover" | "premium";
+  /** Fundo do modelo Capa: escuro (padrão) ou claro. */
+  storefrontTheme?: "dark" | "light" | null;
   pickupAddress: string | null;
   openingHours?: OpeningHours | null;
   acceptsCashOnDelivery?: boolean;

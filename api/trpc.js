@@ -3553,6 +3553,7 @@ var appRouter = router({
         heroImageUrl: z2.string().url().optional(),
         primaryColor: z2.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
         templateId: z2.enum(["classic", "modern", "cover", "premium"]).optional(),
+        storefrontTheme: z2.enum(["dark", "light"]).optional(),
         pickupAddress: z2.string().min(5).optional()
       })
     ).mutation(

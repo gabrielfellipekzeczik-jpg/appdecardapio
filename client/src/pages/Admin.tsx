@@ -5,6 +5,7 @@ import {
   ChefHat,
   ClipboardList,
   Copy,
+  DoorOpen,
   LogOut,
   Menu,
   MessageCircle,
@@ -44,7 +45,11 @@ type TabKey = (typeof TABS)[number]["key"] | "appearance" | "whatsapp";
 
 export default function Admin() {
   const { slug = "" } = useParams<{ slug: string }>();
-  const { user, loading, isAuthenticated } = useAuth();
+  const { user, loading, isAuthenticated, logout } = useAuth();
+  const signOut = async () => {
+    await logout();
+    window.location.href = "/admin-login";
+  };
   const companyQuery = trpc.company.mine.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -184,6 +189,15 @@ export default function Admin() {
               Voltar ao cardápio
             </button>
           </Link>
+          <button className="admin-nav-item" onClick={signOut}>
+            <DoorOpen className="h-4 w-4" />
+            Sair da conta
+          </button>
+          {user.email && (
+            <p className="truncate px-3 pt-1 text-[11px] text-white/45" title={user.email}>
+              {user.email}
+            </p>
+          )}
         </div>
       </aside>
       <div className="lg:pl-[252px]">
@@ -309,6 +323,10 @@ export default function Admin() {
               <Link href={`/${slug}`}>
                 {drawerItem(false, LogOut, "Voltar ao cardápio")}
               </Link>
+              {drawerItem(false, DoorOpen, "Sair da conta", () => void signOut())}
+              {user.email && (
+                <p className="truncate px-3 pt-1 text-xs text-[#9a9185]">{user.email}</p>
+              )}
             </div>
           </SheetContent>
         </Sheet>

@@ -93,7 +93,7 @@ export async function updateCompanyOrdering(companyId: number, input: {
 
 export async function updateCompanyBranding(companyId: number, input: {
   name?: string; tagline?: string; logoUrl?: string; heroImageUrl?: string;
-  primaryColor?: string; templateId?: "classic" | "modern" | "cover" | "premium"; pickupAddress?: string;
+  primaryColor?: string; templateId?: "classic" | "modern" | "cover" | "premium"; storefrontTheme?: "dark" | "light"; pickupAddress?: string;
 }) {
   const db = getDb();
   await db.from("companies").update(input as Record<string, unknown>).eq("id", companyId);
