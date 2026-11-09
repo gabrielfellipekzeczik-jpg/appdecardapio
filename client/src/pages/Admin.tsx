@@ -18,7 +18,7 @@ import {
   Utensils,
   WalletCards,
 } from "lucide-react";
-import { AppearancePanel } from "@/components/AppearancePanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { MenuManager } from "@/components/MenuManager";
 import { FinanceDashboard } from "@/components/FinanceDashboard";
 import { InventoryManager } from "@/components/InventoryManager";
@@ -26,12 +26,6 @@ import { KitchenBoard } from "@/components/KitchenBoard";
 import { WhatsappBotCard } from "@/components/WhatsappBotCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -47,8 +41,9 @@ const TABS = [
   { key: "menu", label: "Cardápio", icon: Utensils, title: "Cardápio", subtitle: "Cadastre e organize o que você vende." },
   { key: "inventory", label: "Estoque e produção", icon: Package, title: "Estoque e produção", subtitle: "O que você tem, o que vai fazer e o que falta comprar." },
   { key: "finance", label: "Financeiro", icon: WalletCards, title: "Financeiro", subtitle: "Quanto entrou, quanto saiu e o que mais vende." },
+  { key: "whatsapp", label: "WhatsApp", icon: MessagesSquare, title: "WhatsApp", subtitle: "Conecte o número do negócio e deixe a IA responder os clientes." },
 ] as const;
-type TabKey = (typeof TABS)[number]["key"] | "appearance" | "whatsapp";
+type TabKey = (typeof TABS)[number]["key"] | "settings";
 
 export default function Admin() {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -61,7 +56,13 @@ export default function Admin() {
     enabled: isAuthenticated,
   });
   usePageTitle(companyQuery.data?.name && `Painel · ${companyQuery.data.name}`);
-  const [tab, setTab] = useState<TabKey>("kitchen");
+  // Volta do Mercado Pago cai nas configurações (seção de pagamento).
+  const [tab, setTab] = useState<TabKey>(() =>
+    typeof window !== "undefined" &&
+    /[?&](mercadopago|config)=/.test(window.location.search)
+      ? "settings"
+      : "kitchen"
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const storefrontUrl =
     typeof window !== "undefined"
@@ -141,17 +142,10 @@ export default function Admin() {
       {label}
     </button>
   );
-  const heading =
-    current ??
-    (tab === "whatsapp"
-      ? {
-          title: "WhatsApp",
-          subtitle: "Conecte o número do negócio e deixe a IA responder os clientes.",
-        }
-      : {
-          title: "Aparência",
-          subtitle: "Logo, cores, horários e o visual da sua página.",
-        });
+  const heading = current ?? {
+    title: "Configurações",
+    subtitle: "Tudo da sua loja num lugar só: pedidos e entrega, visual do cardápio e pagamento.",
+  };
 
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">
@@ -227,6 +221,14 @@ export default function Admin() {
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setTab("settings")}
+            aria-label="Configurações"
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl lg:hidden ${tab === "settings" ? "bg-[#2f5d50] text-white" : "text-[#29251f] hover:bg-[#ebe8e1]"}`}
+          >
+            <Settings className="h-5 w-5" />
+          </button>
           <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
             <Button
               variant="outline"
@@ -255,37 +257,15 @@ export default function Admin() {
             </a>
             <Button
               variant="outline"
-              onClick={() => setTab("whatsapp")}
-              aria-pressed={tab === "whatsapp"}
-              aria-label="WhatsApp"
-              className="rounded-xl border-[#e5e0d7] bg-white px-3"
+              size="icon"
+              onClick={() => setTab("settings")}
+              aria-pressed={tab === "settings"}
+              aria-label="Configurações"
+              title="Configurações"
+              className={`rounded-xl border-[#e5e0d7] ${tab === "settings" ? "bg-[#2f5d50] text-white hover:bg-[#254a40] hover:text-white" : "bg-white"}`}
             >
-              <MessagesSquare className="mr-2 h-4 w-4" />
-              <span>WhatsApp</span>
+              <Settings className="h-4 w-4" />
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  aria-label="Configurações"
-                  aria-pressed={tab === "appearance"}
-                  className="rounded-xl border-[#e5e0d7] bg-white px-3"
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Configurações</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 rounded-xl">
-                <DropdownMenuItem onSelect={() => setTab("appearance")} className="gap-2 py-2.5">
-                  <Palette className="h-4 w-4" /> Aparência e regras
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild className="gap-2 py-2.5">
-                  <Link href={`/${slug}/admin/integracoes`}>
-                    <Plug className="h-4 w-4" /> Integrações
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </header>
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -308,12 +288,7 @@ export default function Admin() {
             </nav>
             <div className="mx-3 border-t border-[#e5e0d7]" />
             <div className="space-y-1 p-3">
-              {drawerItem(tab === "whatsapp", MessagesSquare, "Robô do WhatsApp", () => go("whatsapp"))}
-              <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[#9a9185]">Configurações</p>
-              {drawerItem(tab === "appearance", Palette, "Aparência e regras", () => go("appearance"))}
-              <Link href={`/${slug}/admin/integracoes`}>
-                {drawerItem(false, Plug, "Integrações")}
-              </Link>
+              {drawerItem(tab === "settings", Settings, "Configurações", () => go("settings"))}
             </div>
             <div className="mx-3 border-t border-[#e5e0d7]" />
             <div className="space-y-1 p-3">
@@ -355,7 +330,7 @@ export default function Admin() {
           {tab === "menu" && <MenuManager />}
           {tab === "inventory" && <InventoryManager slug={slug} />}
           {tab === "finance" && <FinanceDashboard />}
-          {tab === "appearance" && <AppearancePanel />}
+          {tab === "settings" && <SettingsPanel />}
           {tab === "whatsapp" && <WhatsappBotCard />}
         </main>
       </div>

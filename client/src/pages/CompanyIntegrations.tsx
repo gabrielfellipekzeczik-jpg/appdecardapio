@@ -23,7 +23,8 @@ import { usePageTitle } from "@/lib/usePageTitle";
 
 type DeliveryOption = "uber_direct" | "lalamove" | "own_courier";
 
-export default function CompanyIntegrations() {
+/** `embedded`: só os cartões, dentro da tela de Configurações do painel. */
+export default function CompanyIntegrations({ embedded = false }: { embedded?: boolean } = {}) {
   const { slug } = useParams<{ slug: string }>();
   const { user, loading, isAuthenticated } = useAuth();
   const companyQuery = trpc.company.mine.useQuery(undefined, {
@@ -104,7 +105,7 @@ export default function CompanyIntegrations() {
       );
   };
 
-  if (loading)
+  if (loading && !embedded)
     return (
       <div className="min-h-screen bg-[#f7f6f2] p-8">
         <div className="mx-auto max-w-6xl animate-pulse rounded-3xl bg-white p-12">
@@ -112,7 +113,7 @@ export default function CompanyIntegrations() {
         </div>
       </div>
     );
-  if (!isAuthenticated || user?.role !== "admin")
+  if (!embedded && (!isAuthenticated || user?.role !== "admin"))
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f7f6f2] px-6">
         <Card className="max-w-md border-0 text-center shadow-xl">
@@ -168,42 +169,7 @@ export default function CompanyIntegrations() {
     },
   ];
 
-  return (
-    <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">
-      <header className="border-b border-[#e5e0d7] bg-[#fbfaf7]">
-        <div className="mx-auto flex h-[76px] max-w-6xl items-center justify-between px-5 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="brand-mark">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="font-display text-xl font-bold">Integrações</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#a05c32]">
-                {companyQuery.data?.name}
-              </p>
-            </div>
-          </div>
-          <Link href={`/${slug}/admin`}>
-            <Button
-              variant="outline"
-              className="rounded-xl border-[#e5e0d7] bg-white"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar ao painel
-            </Button>
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-5 py-10 lg:px-8">
-        <div className="mb-8">
-          <h1 className="font-display text-4xl font-bold tracking-tight">
-            Pagamento e entrega
-          </h1>
-          <p className="mt-3 max-w-2xl leading-7 text-[#776e63]">
-            Conecte o Mercado Pago pra receber pelo app e escolha como suas
-            entregas são despachadas.
-          </p>
-        </div>
-
+  const content = (
         <div className="space-y-5">
           <Card className="overflow-hidden border-0 shadow-[0_8px_35px_rgba(67,48,32,0.05)]">
             <CardHeader className="flex flex-row items-start justify-between gap-4 pb-4">
@@ -557,6 +523,46 @@ export default function CompanyIntegrations() {
           </Card>
 
         </div>
+  );
+  if (embedded) return content;
+
+  return (
+    <div className="min-h-screen bg-[#f7f6f2] text-[#29251f]">
+      <header className="border-b border-[#e5e0d7] bg-[#fbfaf7]">
+        <div className="mx-auto flex h-[76px] max-w-6xl items-center justify-between px-5 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="brand-mark">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-display text-xl font-bold">Integrações</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#a05c32]">
+                {companyQuery.data?.name}
+              </p>
+            </div>
+          </div>
+          <Link href={`/${slug}/admin`}>
+            <Button
+              variant="outline"
+              className="rounded-xl border-[#e5e0d7] bg-white"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar ao painel
+            </Button>
+          </Link>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-5 py-10 lg:px-8">
+        <div className="mb-8">
+          <h1 className="font-display text-4xl font-bold tracking-tight">
+            Pagamento e entrega
+          </h1>
+          <p className="mt-3 max-w-2xl leading-7 text-[#776e63]">
+            Conecte o Mercado Pago pra receber pelo app e escolha como suas
+            entregas são despachadas.
+          </p>
+        </div>
+
+        {content}
 
         <Card className="mt-8 border-0 shadow-sm">
           <CardContent className="p-5">

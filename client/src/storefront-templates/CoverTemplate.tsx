@@ -242,7 +242,7 @@ function MobileMenu({ s, brand }: { s: Storefront; brand: string }) {
               {s.menu.filter((item) => item.category === category).map((item) => {
                 const qty = s.cart.find((line) => line.id === item.id)?.qty ?? 0;
                 return (
-                  <article key={item.id} className="flex gap-3 rounded-2xl border border-[var(--cv-line)] bg-[var(--cv-card)] p-3">
+                  <article key={item.id} className="flex gap-3 rounded-2xl border border-[var(--cv-line)] bg-[var(--cv-card)] p-3 pb-5">
                     <div className="flex min-w-0 flex-1 flex-col">
                       <h3 className="font-display text-base font-bold leading-snug text-[var(--cv-title)]">{item.name}</h3>
                       {item.description && <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--cv-muted)]">{item.description}</p>}
@@ -250,14 +250,40 @@ function MobileMenu({ s, brand }: { s: Storefront; brand: string }) {
                     </div>
                     <div className="relative h-24 w-24 shrink-0">
                       <img src={item.image} alt={item.name} loading="lazy" className="h-24 w-24 rounded-xl object-cover" />
-                      <button
-                        onClick={() => s.add(item.id)}
-                        aria-label={`Adicionar ${item.name}`}
-                        className="absolute -bottom-2 -right-2 flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-sm font-bold text-[var(--cv-on-accent)] shadow-lg ring-2 ring-[var(--cv-page)]"
-                        style={{ backgroundColor: brand }}
-                      >
-                        {qty > 0 ? qty : <Plus className="h-5 w-5" />}
-                      </button>
+                      {qty > 0 ? (
+                        // Já está no pedido: diminui, mostra a quantidade e aumenta ali mesmo.
+                        <div
+                          className="absolute -bottom-3 left-1/2 flex h-10 -translate-x-1/2 items-center rounded-full text-[var(--cv-on-accent)] shadow-lg ring-2 ring-[var(--cv-page)]"
+                          style={{ backgroundColor: brand }}
+                        >
+                          <button
+                            onClick={() => s.changeQty(item.id, -1)}
+                            aria-label={qty === 1 ? `Remover ${item.name}` : `Diminuir ${item.name}`}
+                            className="flex h-10 w-9 items-center justify-center rounded-l-full active:opacity-70"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </button>
+                          <span aria-live="polite" aria-label={`${qty} no pedido`} className="min-w-5 text-center text-sm font-bold">
+                            {qty}
+                          </span>
+                          <button
+                            onClick={() => s.add(item.id)}
+                            aria-label={`Adicionar mais ${item.name}`}
+                            className="flex h-10 w-9 items-center justify-center rounded-r-full active:opacity-70"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => s.add(item.id)}
+                          aria-label={`Adicionar ${item.name}`}
+                          className="absolute -bottom-2 -right-2 flex h-10 w-10 items-center justify-center rounded-full text-[var(--cv-on-accent)] shadow-lg ring-2 ring-[var(--cv-page)]"
+                          style={{ backgroundColor: brand }}
+                        >
+                          <Plus className="h-5 w-5" />
+                        </button>
+                      )}
                     </div>
                   </article>
                 );

@@ -4763,7 +4763,7 @@ async function handleMercadoPagoCallback(req, res) {
   const { getCompanyById: getCompanyById2 } = await Promise.resolve().then(() => (init_companies(), companies_exports));
   const { saveIntegrationCredentials: saveIntegrationCredentials2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const company = await getCompanyById2(companyId);
-  const redirectBase = company ? `/${company.slug}/admin/integracoes` : "/admin-login";
+  const redirectBase = company ? `/${company.slug}/admin` : "/admin-login";
   try {
     const clientId = process.env.MP_CLIENT_ID ?? "";
     const clientSecret = process.env.MP_CLIENT_SECRET ?? "";

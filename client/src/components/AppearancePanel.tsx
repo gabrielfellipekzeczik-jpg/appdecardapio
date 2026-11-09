@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { extractDominantColor } from "@/lib/color";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
-import { OrderingSettingsCard } from "@/components/OrderingSettingsCard";
 
 const TEMPLATE_OPTIONS = [
   { id: "premium" as const, name: "Bistrô", description: "Escuro e elegante, com foto de fundo, categorias na lateral e carrinho sempre visível. Tem alternância claro/escuro." },
@@ -88,7 +87,6 @@ export function AppearancePanel() {
 
   return (
     <div className="space-y-5">
-      <OrderingSettingsCard />
       <Card className="border-0 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div><CardTitle className="font-display text-xl">Identidade visual</CardTitle><p className="mt-1 text-sm text-[#776e63]">Nome, logo e cor que aparecem no seu cardápio.</p></div>
