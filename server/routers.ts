@@ -10,7 +10,7 @@ import {
 } from "@shared/store-rules";
 import { MAX_LOSS_PERCENT, compatibleUnits } from "@shared/production-plan";
 import {
-  DEFAULT_DELIVERY_PRICING,
+  deliveryPricingFrom,
   estimateDeliveryFee,
   type DeliveryPricing,
 } from "@shared/delivery";
@@ -92,6 +92,8 @@ import {
   cancelPayment,
   createPayment,
   createPaymentLink,
+  ensureFeeRetained,
+  platformFeeReady,
   getPayment,
   getPaymentLink,
   getConnectedCredentials,
@@ -248,6 +250,9 @@ const menuItemInput = z.object({
 type DeliveryCompany = {
   id: number;
   pickupAddress: string | null;
+  deliveryFeeMode?: unknown;
+  deliveryFixedFee?: unknown;
+  deliveryFreeKm?: unknown;
   deliveryBaseFee?: unknown;
   deliveryIncludedKm?: unknown;
   deliveryPricePerKm?: unknown;
@@ -255,19 +260,7 @@ type DeliveryCompany = {
 };
 
 function deliveryPricingOf(company: DeliveryCompany): DeliveryPricing {
-  const value = (raw: unknown, fallback: number) => {
-    const parsed = Number(raw);
-    return raw === null || raw === undefined || !Number.isFinite(parsed)
-      ? fallback
-      : parsed;
-  };
-  const base = DEFAULT_DELIVERY_PRICING;
-  return {
-    baseFee: value(company.deliveryBaseFee, base.baseFee),
-    includedKm: value(company.deliveryIncludedKm, base.includedKm),
-    pricePerKm: value(company.deliveryPricePerKm, base.pricePerKm),
-    maxKm: value(company.deliveryMaxKm, base.maxKm),
-  };
+  return deliveryPricingFrom(company);
 }
 
 /** Sem integração de entrega, a loja com endereço cobra a taxa estimada pela distância. */
@@ -663,6 +656,9 @@ export const appRouter = router({
           deliveryIncludedKm: z.number().min(0).max(100).optional(),
           deliveryPricePerKm: z.number().min(0).max(100).optional(),
           deliveryMaxKm: z.number().positive().max(200).optional(),
+          deliveryFeeMode: z.enum(["calculated", "fixed"]).optional(),
+          deliveryFixedFee: z.number().min(0).max(1000).optional(),
+          deliveryFreeKm: z.number().min(0).max(200).optional(),
         })
       )
       .mutation(({ ctx, input }) =>
@@ -727,7 +723,7 @@ export const appRouter = router({
           companyId: z.number().int().positive(),
           percent: z
             .number()
-            .min(0)
+            .min(0.01, "A taxa precisa ser maior que zero.")
             .max(MAX_PLATFORM_FEE_PERCENT)
             .multipleOf(0.01)
             .nullable(),
@@ -1500,12 +1496,14 @@ export const appRouter = router({
       .input(z.object({ companySlug: z.string() }))
       .query(async ({ input }) => {
         const company = await requireCompanyBySlug(input.companySlug);
-        const [credentials, deliveryProvider] = await Promise.all([
+        const [credentials, deliveryProvider, feeReady] = await Promise.all([
           getConnectedCredentials(company.id),
           quoteModeFor(company),
+          platformFeeReady(company.id),
         ]);
+        // Sem taxa da plataforma válida, a loja não oferece pagamento online.
         return {
-          connected: Boolean(credentials),
+          connected: Boolean(credentials) && feeReady,
           publicKey: credentials?.publicKey ?? null,
           deliveryProvider: deliveryProvider ?? null,
         };
@@ -1692,6 +1690,26 @@ export const appRouter = router({
           installments: input.installments,
           issuerId: input.issuerId,
         });
+        if (
+          payment.status === "approved" &&
+          !(await ensureFeeRetained(
+            company.id,
+            String(payment.id),
+            payment,
+            payment.applicationFee
+          ))
+        ) {
+          await setOrderPayment(input.orderId, {
+            paymentStatus: "refunded",
+            externalPaymentId: String(payment.id),
+            platformFeeAmount: payment.applicationFee.toFixed(2),
+          });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Não foi possível concluir este pagamento e o valor foi estornado. Tente outra forma de pagamento.",
+          });
+        }
         const paymentStatus =
           payment.status === "approved" || payment.status === "rejected"
             ? payment.status
@@ -1731,6 +1749,20 @@ export const appRouter = router({
           return { paymentStatus: found.order.paymentStatus };
         const current = await getPayment(company.id, paymentId);
         if (current.status === "approved") {
+          if (
+            !(await ensureFeeRetained(
+              company.id,
+              paymentId,
+              current,
+              Number(found.order.platformFeeAmount ?? 0)
+            ))
+          ) {
+            await setOrderPayment(input.orderId, {
+              paymentStatus: "refunded",
+              externalPaymentId: paymentId,
+            });
+            return { paymentStatus: "refunded" };
+          }
           await setOrderPayment(input.orderId, {
             paymentStatus: "approved",
             externalPaymentId: paymentId,
@@ -1773,7 +1805,23 @@ export const appRouter = router({
         const paymentId = found.order.externalPaymentId;
         if (!paymentId || found.order.paymentStatus !== "pending")
           return { status: "cancelled" as const };
-        const markApproved = async () => {
+        const markApproved = async (
+          payment: Awaited<ReturnType<typeof getPayment>>
+        ) => {
+          if (
+            !(await ensureFeeRetained(
+              company.id,
+              paymentId,
+              payment,
+              Number(found.order.platformFeeAmount ?? 0)
+            ))
+          ) {
+            await setOrderPayment(input.orderId, {
+              paymentStatus: "refunded",
+              externalPaymentId: paymentId,
+            });
+            return { status: "cancelled" as const };
+          }
           await setOrderPayment(input.orderId, {
             paymentStatus: "approved",
             externalPaymentId: paymentId,
@@ -1782,7 +1830,7 @@ export const appRouter = router({
           return { status: "approved" as const };
         };
         const current = await getPayment(company.id, paymentId);
-        if (current.status === "approved") return markApproved();
+        if (current.status === "approved") return markApproved(current);
         if (current.payment_method_id !== "pix")
           throw new TRPCError({
             code: "CONFLICT",
@@ -1793,7 +1841,7 @@ export const appRouter = router({
           !(await cancelPayment(company.id, paymentId))
         ) {
           const latest = await getPayment(company.id, paymentId);
-          if (latest.status === "approved") return markApproved();
+          if (latest.status === "approved") return markApproved(latest);
           if (latest.status === "pending")
             throw new TRPCError({
               code: "CONFLICT",

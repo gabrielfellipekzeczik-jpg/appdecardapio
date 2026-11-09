@@ -96,7 +96,7 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     });
     if (!paymentResp.ok) return;
 
-    const payment = (await paymentResp.json()) as { id: number; status: string; external_reference?: string; preference_id?: string | null; collector_id?: number | string; transaction_amount?: number };
+    const payment = (await paymentResp.json()) as { id: number; status: string; external_reference?: string; preference_id?: string | null; collector_id?: number | string; transaction_amount?: number; fee_details?: { type?: string; amount?: number }[] };
     const MP_STATUS_MAP: Record<string, "pending" | "approved" | "rejected" | "refunded"> = {
       pending: "pending", in_process: "pending", authorized: "pending",
       approved: "approved", rejected: "rejected", cancelled: "rejected",
@@ -115,6 +115,15 @@ async function handleMercadoPagoWebhook(req: IncomingMessage, res: ServerRespons
     }
     if (!existingOrder || existingOrder.id !== orderId || existingOrder.companyId !== companyId || Number(payment.transaction_amount).toFixed(2) !== Number(existingOrder.total).toFixed(2)) return;
     if (existingOrder.paymentStatus !== mappedStatus) {
+      // Pagamento aprovado sem a taxa da plataforma é estornado e não vai para a cozinha.
+      if (mappedStatus === "approved") {
+        const { ensureFeeRetained } = await import("./integrations/mercadoPago");
+        const ok = await ensureFeeRetained(companyId, String(paymentId), payment, Number(existingOrder.platformFeeAmount ?? 0));
+        if (!ok) {
+          await setOrderPayment(orderId, { paymentStatus: "refunded", externalPaymentId: String(paymentId) });
+          return;
+        }
+      }
       await setOrderPayment(orderId, { paymentStatus: mappedStatus, externalPaymentId: String(paymentId) });
       if (mappedStatus === "approved") {
         const { notifyOrderEvent } = await import("./notifications");

@@ -38,6 +38,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ManualOrderDialog } from "@/components/ManualOrderDialog";
 import { trpc } from "@/lib/trpc";
+import { useIsMobile } from "@/hooks/useMobile";
 import { findNewOrderIds } from "@shared/order-alerts";
 import { isPickupOrder } from "@shared/store-rules";
 
@@ -73,6 +74,14 @@ const COLUMNS: {
   { key: "out_for_delivery", label: "Saiu para entrega", icon: Truck, tone: "bg-[#f6f0ff] text-[#6b4fa0] border-[#d0b8f5]", dot: "bg-[#6b4fa0]" },
   { key: "delivered", label: "Entregue", icon: Bike, tone: "bg-[#f1efea] text-[#776e63] border-[#e0dbd1]", dot: "bg-[#776e63]" },
 ];
+
+const SHORT_LABEL: Record<BoardStatus, string> = {
+  received: "Novos",
+  preparing: "Preparo",
+  ready: "Pronto",
+  out_for_delivery: "Saiu",
+  delivered: "Entregue",
+};
 
 const NEXT_LABEL: Partial<Record<BoardStatus, string>> = {
   received: "Iniciar preparo",
@@ -156,18 +165,21 @@ function CardBody({
 function OrderCard({
   order,
   busy,
+  mobile = false,
   onMove,
   onCashReceived,
   onDelete,
 }: {
   order: BoardOrder;
   busy: boolean;
+  mobile?: boolean;
   onMove: (order: BoardOrder, status: BoardStatus) => void;
   onCashReceived: (order: BoardOrder) => void;
   onDelete: (order: BoardOrder) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: order.id,
+    disabled: mobile,
   });
   const next = nextStatus(order);
   const nextLabel =
@@ -179,8 +191,12 @@ function OrderCard({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      aria-label={`Pedido ${order.id}, arraste para mudar de coluna`}
-      className={`cursor-grab rounded-xl border border-[#e8e3da] bg-white p-3 shadow-sm active:cursor-grabbing ${isDragging ? "opacity-30" : ""}`}
+      aria-label={
+        mobile
+          ? `Pedido ${order.id}`
+          : `Pedido ${order.id}, arraste para mudar de coluna`
+      }
+      className={`rounded-xl border border-[#e8e3da] bg-white shadow-sm ${mobile ? "p-4" : "cursor-grab p-3 active:cursor-grabbing"} ${isDragging ? "opacity-30" : ""}`}
     >
       <CardBody
         order={order}
@@ -197,7 +213,7 @@ function OrderCard({
                 size="sm"
                 disabled={busy}
                 onClick={() => onMove(order, next)}
-                className="h-9 min-w-0 flex-1 rounded-lg bg-[#2f5d50] px-2 text-xs font-semibold text-white hover:bg-[#254a40]"
+                className={`min-w-0 flex-1 rounded-lg bg-[#2f5d50] px-2 font-semibold text-white hover:bg-[#254a40] ${mobile ? "h-11 text-sm" : "h-9 text-xs"}`}
               >
                 <span className="truncate">{nextLabel}</span>
                 <ChevronRight className="ml-0.5 h-3.5 w-3.5 shrink-0" />
@@ -211,7 +227,7 @@ function OrderCard({
                 aria-label={`Marcar pedido ${order.id} como pago`}
                 title="Recebi o pagamento"
                 onClick={() => onCashReceived(order)}
-                className="h-9 w-9 shrink-0 rounded-lg p-0 text-[#347052]"
+                className={`shrink-0 rounded-lg p-0 text-[#347052] ${mobile ? "h-11 w-11" : "h-9 w-9"}`}
               >
                 <Wallet className="h-4 w-4" />
               </Button>
@@ -223,7 +239,7 @@ function OrderCard({
               aria-label={`Excluir pedido ${order.id}`}
               title="Excluir pedido"
               onClick={() => onDelete(order)}
-              className="h-9 w-9 shrink-0 rounded-lg p-0 text-[#a79b8d] hover:bg-red-50 hover:text-red-600"
+              className={`shrink-0 rounded-lg p-0 text-[#a79b8d] hover:bg-red-50 hover:text-red-600 ${mobile ? "h-11 w-11" : "h-9 w-9"}`}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -288,6 +304,8 @@ export function KitchenBoard({ slug }: { slug: string }) {
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<BoardOrder | null>(null);
   const seenIds = useRef<number[]>([]);
+  const mobile = useIsMobile();
+  const [mobileStatus, setMobileStatus] = useState<BoardStatus>("received");
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, {
@@ -445,7 +463,7 @@ export function KitchenBoard({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-[1fr_auto] items-center gap-2 md:flex md:flex-wrap">
         <ManualOrderDialog
           slug={slug}
           onCreated={() => void ordersQuery.refetch()}
@@ -461,6 +479,67 @@ export function KitchenBoard({ slug }: { slug: string }) {
           Atualizar
         </Button>
       </div>
+      {mobile ? (
+        <div>
+          <div
+            role="tablist"
+            aria-label="Etapas dos pedidos"
+            className="sticky top-[60px] z-20 -mx-4 grid grid-cols-5 gap-1 bg-[#f7f6f2] px-3 py-2"
+          >
+            {COLUMNS.map(column => {
+              const count = inColumn(column.key).length;
+              const active = mobileStatus === column.key;
+              const Icon = column.icon;
+              return (
+                <button
+                  key={column.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={`${column.label}: ${count}`}
+                  onClick={() => setMobileStatus(column.key)}
+                  className={`relative flex flex-col items-center gap-0.5 rounded-xl border px-1 py-2 text-[11px] font-semibold leading-tight transition ${
+                    active
+                      ? "border-[#2f5d50] bg-[#2f5d50] text-white"
+                      : "border-[#e5e0d7] bg-white text-[#5d554b]"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {SHORT_LABEL[column.key]}
+                  {count > 0 && (
+                    <span
+                      className={`absolute -right-1 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] text-white ring-2 ring-[#f7f6f2] ${column.dot}`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 space-y-3">
+            {inColumn(mobileStatus).length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-[#dcd6cb] px-4 py-10 text-center text-sm text-[#8a8177]">
+                Nenhum pedido em “{COLUMNS.find(c => c.key === mobileStatus)?.label}”.
+              </p>
+            ) : (
+              <DndContext sensors={[]}>
+                {inColumn(mobileStatus).map(order => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    mobile
+                    busy={busyId === order.id}
+                    onMove={moveOrder}
+                    onCashReceived={confirmCash}
+                    onDelete={setDeleting}
+                  />
+                ))}
+              </DndContext>
+            )}
+          </div>
+        </div>
+      ) : (
       <DndContext
         sensors={sensors}
         onDragStart={event => setDraggingId(Number(event.active.id))}
@@ -494,6 +573,7 @@ export function KitchenBoard({ slug }: { slug: string }) {
           )}
         </DragOverlay>
       </DndContext>
+      )}
 
       <AlertDialog
         open={Boolean(deleting)}

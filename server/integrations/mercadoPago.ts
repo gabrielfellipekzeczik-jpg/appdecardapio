@@ -1,6 +1,13 @@
 import { ENV } from "../_core/env";
 import { getDb, getIntegrationCredentials, saveIntegrationCredentials } from "../db";
-import { effectiveFeePercent, platformFeeAmount } from "@shared/platform-fee";
+import {
+  effectiveFeePercent,
+  feeWasRetained,
+  isValidFeePercent,
+  platformFeeAmount,
+  requiredFeeAmount,
+  retainedPlatformFee,
+} from "@shared/platform-fee";
 
 const MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
 const MP_TOKEN_URL = "https://api.mercadopago.com/oauth/token";
@@ -217,6 +224,65 @@ export function computeApplicationFee(
   return platformFeeAmount(transactionAmount, percent);
 }
 
+export const PLATFORM_FEE_MISSING_MESSAGE =
+  "Pagamento online indisponível nesta loja no momento. Escolha pagar na entrega ou tente mais tarde.";
+
+/** Sem taxa válida não existe pagamento online: a venda nunca passa sem a parte da plataforma. */
+export async function requiredApplicationFee(
+  companyId: number,
+  transactionAmount: number
+): Promise<number> {
+  const percent = await feePercentFor(companyId);
+  if (!isValidFeePercent(percent)) {
+    console.error(
+      `[mercadopago] taxa da plataforma inválida para a empresa ${companyId}: ${percent}%`
+    );
+    throw new Error(PLATFORM_FEE_MISSING_MESSAGE);
+  }
+  return requiredFeeAmount(transactionAmount, percent);
+}
+
+export async function platformFeeReady(companyId: number): Promise<boolean> {
+  return isValidFeePercent(await feePercentFor(companyId));
+}
+
+/** Devolve o dinheiro ao comprador (pagamento aprovado sem a taxa da plataforma). */
+export async function refundPayment(companyId: number, paymentId: string) {
+  const response = await sellerPaymentRequest(
+    companyId,
+    `${paymentId}/refunds`,
+    {
+      method: "POST",
+      body: "{}",
+      headers: { "X-Idempotency-Key": `fee-refund-${paymentId}` },
+    }
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error("[mercadopago] estorno falhou", paymentId, response.status, detail);
+  }
+  return response.ok;
+}
+
+/**
+ * Confere se o pagamento aprovado reteve a taxa da plataforma. Se não reteve,
+ * estorna e devolve false: o pedido não pode seguir como pago.
+ */
+export async function ensureFeeRetained(
+  companyId: number,
+  paymentId: string,
+  payment: Parameters<typeof retainedPlatformFee>[0],
+  expectedFee: number
+): Promise<boolean> {
+  const retained = retainedPlatformFee(payment);
+  if (feeWasRetained(retained, expectedFee)) return true;
+  console.error(
+    `[mercadopago] pagamento ${paymentId} aprovado sem a taxa (retido ${retained}, esperado ${expectedFee}); estornando`
+  );
+  await refundPayment(companyId, paymentId);
+  return false;
+}
+
 /** Taxa definida pelo dono da plataforma para o restaurante, ou a padrão. */
 export async function feePercentFor(companyId: number): Promise<number> {
   const { data } = await getDb()
@@ -234,14 +300,14 @@ export async function createPayment(input: CreatePaymentInput) {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
 
-  const applicationFee = computeApplicationFee(
-    input.transactionAmount,
-    await feePercentFor(input.companyId)
+  const applicationFee = await requiredApplicationFee(
+    input.companyId,
+    input.transactionAmount
   );
 
   const body = {
     transaction_amount: input.transactionAmount,
-    ...(applicationFee > 0 ? { application_fee: applicationFee } : {}),
+    application_fee: applicationFee,
     description: input.description,
     payment_method_id: input.paymentMethodId,
     token: input.token,
@@ -302,6 +368,7 @@ export async function createPayment(input: CreatePaymentInput) {
     status: string;
     status_detail: string;
     date_of_expiration?: string | null;
+    fee_details?: { type?: string; amount?: number }[];
     point_of_interaction?: {
       transaction_data?: {
         qr_code?: string;
@@ -320,11 +387,13 @@ async function sellerPaymentRequest(
 ) {
   const credentials = await getConnectedCredentials(companyId);
   if (!credentials) throw new Error("Mercado Pago is not connected");
-  const url = `${MP_PAYMENTS_URL}/${encodeURIComponent(paymentId)}`;
+  const [id, ...rest] = paymentId.split("/");
+  const url = `${MP_PAYMENTS_URL}/${encodeURIComponent(id)}${rest.length ? `/${rest.join("/")}` : ""}`;
   const attempt = (accessToken: string) =>
     fetch(url, {
       ...init,
       headers: {
+        ...(init?.headers as Record<string, string> | undefined),
         "content-type": "application/json",
         authorization: `Bearer ${accessToken}`,
       },
@@ -344,6 +413,7 @@ export async function getPayment(companyId: number, paymentId: string) {
     id: number;
     status: string;
     payment_method_id?: string;
+    fee_details?: { type?: string; amount?: number }[];
   };
 }
 
@@ -379,9 +449,9 @@ export async function createPaymentLink(input: {
   const credentials = await getConnectedCredentials(input.companyId);
   if (!credentials)
     throw new Error("Mercado Pago não está conectado para esta loja.");
-  const applicationFee = computeApplicationFee(
-    input.transactionAmount,
-    await feePercentFor(input.companyId)
+  const applicationFee = await requiredApplicationFee(
+    input.companyId,
+    input.transactionAmount
   );
   const body = {
     items: [

@@ -103,6 +103,9 @@ export type Company = {
   deliveryIncludedKm?: number | string | null;
   deliveryPricePerKm?: number | string | null;
   deliveryMaxKm?: number | string | null;
+  deliveryFeeMode?: "calculated" | "fixed" | null;
+  deliveryFixedFee?: number | string | null;
+  deliveryFreeKm?: number | string | null;
   status: "active" | "suspended";
   mp_connected: boolean;
   /** Taxa da plataforma (%) para este restaurante; null usa PLATFORM_FEE_PERCENT. */

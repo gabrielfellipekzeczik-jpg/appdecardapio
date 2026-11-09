@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { MAX_PLATFORM_FEE_PERCENT } from "@shared/platform-fee";
+import { MAX_PLATFORM_FEE_PERCENT, isValidFeePercent } from "@shared/platform-fee";
 
 const money = (value: number) =>
   `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
@@ -29,7 +29,9 @@ function FeeEditor({
   defaultFeePercent: number;
   onSaved: () => void;
 }) {
-  const [value, setValue] = useState(String(feePercent).replace(".", ","));
+  const [value, setValue] = useState(
+    feePercent > 0 ? String(feePercent).replace(".", ",") : ""
+  );
   const mutation = trpc.company.setFeePercent.useMutation({
     onSuccess: (_data, input) => {
       toast.success(
@@ -45,9 +47,7 @@ function FeeEditor({
   const parsed = Number(value.replace(",", ".").trim());
   const valid =
     value.trim() !== "" &&
-    Number.isFinite(parsed) &&
-    parsed >= 0 &&
-    parsed <= MAX_PLATFORM_FEE_PERCENT;
+    isValidFeePercent(parsed);
   const changed = valid && Math.abs(parsed - feePercent) > 0.001;
 
   return (
@@ -67,6 +67,7 @@ function FeeEditor({
           <Input
             value={value}
             onChange={event => setValue(event.target.value)}
+            placeholder="ex.: 5"
             inputMode="decimal"
             aria-label="Taxa cobrada em porcentagem"
             className="h-9 rounded-lg pr-7"
@@ -82,7 +83,7 @@ function FeeEditor({
       >
         Salvar
       </Button>
-      {customFee && (
+      {customFee && isValidFeePercent(defaultFeePercent) && (
         <button
           type="button"
           disabled={mutation.isPending}
@@ -97,7 +98,7 @@ function FeeEditor({
       )}
       {!valid && value.trim() !== "" && (
         <p className="w-full text-xs text-red-600">
-          Use um valor de 0 a {MAX_PLATFORM_FEE_PERCENT}.
+          Use um valor maior que 0 e até {MAX_PLATFORM_FEE_PERCENT}.
         </p>
       )}
     </form>
@@ -192,8 +193,13 @@ export default function SuperAdmin() {
 
         <h1 className="font-display text-2xl font-bold">Empresas cadastradas</h1>
         <p className="mb-4 mt-1 text-sm text-[#776e63]">
-          A taxa é retida automaticamente nos pagamentos online (Pix e cartão pelo Mercado Pago).
-          Taxa padrão: {percentText(defaultFeePercent)}. Pagamentos em dinheiro não têm taxa.
+          A taxa é retida automaticamente nos pagamentos online (Pix, cartão e links do Mercado Pago).
+          Sem taxa válida a loja não aceita pagamento online, e um pagamento aprovado sem a taxa é estornado.
+          {" "}
+          {isValidFeePercent(defaultFeePercent)
+            ? `Taxa padrão: ${percentText(defaultFeePercent)}.`
+            : "Não há taxa padrão válida: defina a taxa de cada restaurante."}
+          {" "}Pagamentos em dinheiro não têm taxa.
         </p>
         <div className="space-y-3">
           {companiesQuery.isLoading && (
@@ -211,7 +217,7 @@ export default function SuperAdmin() {
               <CardContent className="p-6 text-sm text-[#776e63]">Nenhuma empresa cadastrada ainda.</CardContent>
             </Card>
           )}
-          {companies.map(({ company, revenue, platformFee, orderCount, feePercent, customFee }) => (
+          {companies.map(({ company, revenue, platformFee, orderCount, feePercent, customFee, mpConnected }) => (
             <Card key={company.id} className="border-0 shadow-sm">
               <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
                 <div className="flex min-w-0 items-center gap-3">
@@ -224,7 +230,11 @@ export default function SuperAdmin() {
                       <Badge className={company.status === "active" ? "border-0 bg-[#e2f1e7] text-[#347052]" : "border-0 bg-[#fde2e1] text-[#a3312c]"}>
                         {company.status === "active" ? "Ativa" : "Suspensa"}
                       </Badge>
-                      {!company.mp_connected && (
+                      {!isValidFeePercent(feePercent) ? (
+                        <Badge className="border-0 bg-[#fde2e1] text-[#a3312c]">Online bloqueado: defina a taxa</Badge>
+                      ) : mpConnected ? (
+                        <Badge className="border-0 bg-[#e2f1e7] text-[#347052]">Online ativo com taxa</Badge>
+                      ) : (
                         <Badge className="border-0 bg-[#f1ece3] text-[#776e63]">Mercado Pago não conectado</Badge>
                       )}
                     </div>

@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Copy,
   LogOut,
+  Menu,
   MessageCircle,
   MessagesSquare,
   Package,
@@ -23,12 +24,18 @@ import { KitchenBoard } from "@/components/KitchenBoard";
 import { WhatsappBotCard } from "@/components/WhatsappBotCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/usePageTitle";
 import { trpc } from "@/lib/trpc";
 
 const TABS = [
-  { key: "kitchen", label: "Cozinha", icon: ChefHat, title: "Cozinha", subtitle: "Arraste os pedidos entre as colunas conforme avançam." },
+  { key: "kitchen", label: "Cozinha", icon: ChefHat, title: "Cozinha", subtitle: "Acompanhe os pedidos e avance cada um até a entrega." },
   { key: "menu", label: "Cardápio", icon: Utensils, title: "Cardápio", subtitle: "Cadastre e organize o que você vende." },
   { key: "inventory", label: "Estoque e produção", icon: Package, title: "Estoque e produção", subtitle: "O que você tem, o que vai fazer e o que falta comprar." },
   { key: "finance", label: "Financeiro", icon: WalletCards, title: "Financeiro", subtitle: "Quanto entrou, quanto saiu e o que mais vende." },
@@ -43,6 +50,7 @@ export default function Admin() {
   });
   usePageTitle(companyQuery.data?.name && `Painel · ${companyQuery.data.name}`);
   const [tab, setTab] = useState<TabKey>("kitchen");
+  const [menuOpen, setMenuOpen] = useState(false);
   const storefrontUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/${slug}`
@@ -97,6 +105,30 @@ export default function Admin() {
     }
   };
   const current = TABS.find(entry => entry.key === tab);
+  const go = (key: TabKey) => {
+    setTab(key);
+    setMenuOpen(false);
+    window.scrollTo({ top: 0 });
+  };
+  const drawerItem = (
+    active: boolean,
+    Icon: typeof ChefHat,
+    label: string,
+    onClick?: () => void
+  ) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+        active
+          ? "bg-[#2f5d50] text-white"
+          : "text-[#29251f] hover:bg-[#efebe4]"
+      }`}
+    >
+      <Icon className="h-5 w-5 shrink-0" />
+      {label}
+    </button>
+  );
   const heading =
     current ??
     (tab === "whatsapp"
@@ -155,11 +187,26 @@ export default function Admin() {
         </div>
       </aside>
       <div className="lg:pl-[252px]">
-        <header className="flex min-h-[68px] items-center justify-between gap-3 border-b border-[#e5e0d7] bg-[#f7f6f2]/85 px-4 backdrop-blur-lg lg:px-9">
-          <p className="min-w-0 truncate font-display text-xl font-bold">
-            {companyQuery.data?.name ?? "Painel"}
-          </p>
-          <div className="flex shrink-0 items-center gap-1.5">
+        <header className="sticky top-0 z-30 flex min-h-[60px] items-center justify-between gap-3 border-b border-[#e5e0d7] bg-[#f7f6f2]/90 px-3 backdrop-blur-lg lg:min-h-[68px] lg:px-9">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Abrir menu"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#29251f] hover:bg-[#ebe8e1] lg:hidden"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+            <div className="min-w-0">
+              <p className="truncate font-display text-lg font-bold leading-tight lg:text-xl">
+                {companyQuery.data?.name ?? "Painel"}
+              </p>
+              <p className="truncate text-xs text-[#776e63] lg:hidden">
+                {heading.title}
+              </p>
+            </div>
+          </div>
+          <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
             <Button
               variant="outline"
               size="icon"
@@ -192,8 +239,8 @@ export default function Admin() {
               aria-label="WhatsApp"
               className="rounded-xl border-[#e5e0d7] bg-white px-3"
             >
-              <MessagesSquare className="h-4 w-4 md:mr-2" />
-              <span className="hidden md:inline">WhatsApp</span>
+              <MessagesSquare className="mr-2 h-4 w-4" />
+              <span>WhatsApp</span>
             </Button>
             <Button
               variant="outline"
@@ -202,8 +249,8 @@ export default function Admin() {
               aria-label="Aparência"
               className="rounded-xl border-[#e5e0d7] bg-white px-3"
             >
-              <Palette className="h-4 w-4 md:mr-2" />
-              <span className="hidden md:inline">Aparência</span>
+              <Palette className="mr-2 h-4 w-4" />
+              <span>Aparência</span>
             </Button>
             <Link href={`/${slug}/admin/integracoes`}>
               <Button
@@ -211,32 +258,66 @@ export default function Admin() {
                 aria-label="Integrações"
                 className="rounded-xl border-[#e5e0d7] bg-white px-3"
               >
-                <Plug className="h-4 w-4 md:mr-2" />
-                <span className="hidden md:inline">Integrações</span>
+                <Plug className="mr-2 h-4 w-4" />
+                <span>Integrações</span>
               </Button>
             </Link>
           </div>
         </header>
-        <main className="max-w-[1600px] p-4 lg:p-9">
-          <nav
-            aria-label="Seções do painel"
-            className="-mx-4 mb-5 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden"
+        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+          <SheetContent
+            side="left"
+            className="flex w-[84vw] max-w-[320px] flex-col gap-0 overflow-y-auto bg-[#f7f6f2] p-0"
           >
-            {TABS.map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${tab === key ? "bg-[#2f5d50] text-white" : "bg-[#ebe8e1] text-[#5d554b]"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="mb-6">
-            <h2 className="font-display text-3xl font-bold tracking-tight">
+            <div className="border-b border-[#e5e0d7] px-5 pb-4 pt-6">
+              <SheetTitle className="truncate font-display text-xl font-bold">
+                {companyQuery.data?.name ?? "Sua loja"}
+              </SheetTitle>
+              <SheetDescription className="text-xs text-[#776e63]">
+                Painel de gestão
+              </SheetDescription>
+            </div>
+            <nav aria-label="Seções do painel" className="space-y-1 p-3">
+              {TABS.map(({ key, label, icon }) =>
+                <div key={key}>{drawerItem(tab === key, icon, label, () => go(key))}</div>
+              )}
+            </nav>
+            <div className="mx-3 border-t border-[#e5e0d7]" />
+            <div className="space-y-1 p-3">
+              {drawerItem(tab === "whatsapp", MessagesSquare, "Robô do WhatsApp", () => go("whatsapp"))}
+              {drawerItem(tab === "appearance", Palette, "Aparência e regras", () => go("appearance"))}
+              <Link href={`/${slug}/admin/integracoes`}>
+                {drawerItem(false, Plug, "Integrações")}
+              </Link>
+            </div>
+            <div className="mx-3 border-t border-[#e5e0d7]" />
+            <div className="space-y-1 p-3">
+              {drawerItem(false, Copy, "Copiar link do cardápio", () => {
+                setMenuOpen(false);
+                void copyLink();
+              })}
+              <a href={shareWhatsappUrl} target="_blank" rel="noreferrer">
+                {drawerItem(false, MessageCircle, "Divulgar no WhatsApp")}
+              </a>
+            </div>
+            <div className="mt-auto space-y-1 border-t border-[#e5e0d7] p-3">
+              {user.isSuperAdmin && (
+                <Link href="/super-admin">
+                  {drawerItem(false, Settings2, "Super Admin")}
+                </Link>
+              )}
+              <Link href={`/${slug}`}>
+                {drawerItem(false, LogOut, "Voltar ao cardápio")}
+              </Link>
+            </div>
+          </SheetContent>
+        </Sheet>
+        <main className="max-w-[1600px] p-4 lg:p-9">
+          <div className="mb-5 lg:mb-6">
+            <h2 className="hidden font-display text-3xl font-bold tracking-tight lg:block">
               {heading.title}
             </h2>
-            <p className="mt-1 text-[#776e63]">{heading.subtitle}</p>
+            <p className="text-sm text-[#776e63] lg:mt-1 lg:text-base">{heading.subtitle}</p>
           </div>
           {/* A cozinha fica montada em todas as abas para o alerta de novo pedido continuar tocando. */}
           <div hidden={tab !== "kitchen"}>

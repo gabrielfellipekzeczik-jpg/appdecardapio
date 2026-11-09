@@ -17,6 +17,9 @@ type CompanyRow = {
   deliveryIncludedKm?: string | number | null;
   deliveryPricePerKm?: string | number | null;
   deliveryMaxKm?: string | number | null;
+  deliveryFeeMode?: string | null;
+  deliveryFixedFee?: string | number | null;
+  deliveryFreeKm?: string | number | null;
 };
 
 /** Mesmas regras que o checkout usa, em texto, para o assistente responder dúvidas básicas. */
@@ -46,6 +49,9 @@ export function storeInfoFrom(row: CompanyRow, providers: string[]): StoreInfo {
         includedKm: value(row.deliveryIncludedKm, DELIVERY_DEFAULTS.includedKm),
         pricePerKm: value(row.deliveryPricePerKm, DELIVERY_DEFAULTS.pricePerKm),
         maxKm: value(row.deliveryMaxKm, DELIVERY_DEFAULTS.maxKm),
+        mode: row.deliveryFeeMode === "fixed" ? "fixed" : "calculated",
+        fixedFee: value(row.deliveryFixedFee, DELIVERY_DEFAULTS.baseFee),
+        freeUpToKm: value(row.deliveryFreeKm, 0),
       }
       : null,
   };

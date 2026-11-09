@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { DEFAULT_DELIVERY_PRICING } from "@shared/delivery";
+import {
+  DEFAULT_DELIVERY_PRICING,
+  describeDeliveryPricing,
+  type DeliveryFeeMode,
+} from "@shared/delivery";
 import {
   DEFAULT_OPENING_HOURS,
   WEEKDAY_LABELS,
@@ -55,6 +59,9 @@ export function OrderingSettingsCard() {
   const [includedKm, setIncludedKm] = useState("");
   const [pricePerKm, setPricePerKm] = useState("");
   const [maxKm, setMaxKm] = useState("");
+  const [feeMode, setFeeMode] = useState<DeliveryFeeMode>("calculated");
+  const [fixedFee, setFixedFee] = useState("");
+  const [freeKm, setFreeKm] = useState("");
   const mutation = trpc.company.updateOrdering.useMutation({
     onSuccess: () => {
       utils.company.mine.invalidate();
@@ -81,6 +88,9 @@ export function OrderingSettingsCard() {
     setIncludedKm(text(company.deliveryIncludedKm, defaults.includedKm));
     setPricePerKm(text(company.deliveryPricePerKm, defaults.pricePerKm));
     setMaxKm(text(company.deliveryMaxKm, defaults.maxKm));
+    setFeeMode(company.deliveryFeeMode === "fixed" ? "fixed" : "calculated");
+    setFixedFee(text(company.deliveryFixedFee, defaults.fixedFee));
+    setFreeKm(text(company.deliveryFreeKm, defaults.freeUpToKm));
   }, [companyQuery.data]);
 
   const updateDay = (day: number, patch: Partial<DayHours>) =>
@@ -91,9 +101,37 @@ export function OrderingSettingsCard() {
     );
   const pickupInvalid = pickup && pickupAddress.trim().length < 5;
   const parse = (value: string) => Number(value.replace(",", "."));
-  const pricingValues = [baseFee, includedKm, pricePerKm, maxKm].map(parse);
+  const pricingValues = [baseFee, includedKm, pricePerKm, maxKm, fixedFee, freeKm].map(parse);
   const pricingInvalid =
     pricingValues.some(value => !(value >= 0)) || !(parse(maxKm) > 0);
+  const preview = pricingInvalid
+    ? null
+    : describeDeliveryPricing({
+        mode: feeMode,
+        fixedFee: parse(fixedFee),
+        freeUpToKm: parse(freeKm),
+        baseFee: parse(baseFee),
+        includedKm: parse(includedKm),
+        pricePerKm: parse(pricePerKm),
+        maxKm: parse(maxKm),
+      });
+  const numberField = (
+    label: string,
+    value: string,
+    setValue: (value: string) => void,
+    hint?: string
+  ) => (
+    <label key={label} className="text-xs font-semibold">
+      {label}
+      <Input
+        inputMode="decimal"
+        value={value}
+        onChange={event => setValue(event.target.value)}
+        className="mt-1"
+      />
+      {hint && <span className="mt-0.5 block font-normal text-[#a79b8d]">{hint}</span>}
+    </label>
+  );
 
   return (
     <Card className="border-0 shadow-sm">
@@ -129,30 +167,61 @@ export function OrderingSettingsCard() {
         <div className="rounded-xl border border-[#eeeae3] p-3">
           <p className="text-sm font-semibold">Taxa de entrega</p>
           <p className="text-xs text-[#776e63]">
-            Calculada pela distância da rua entre a loja e o cliente, a partir
-            do endereço de retirada. Os valores iniciais usam como referência o
-            que o iFood paga ao entregador de moto. Ajuste para a sua região.
+            A distância é medida pela rua, da loja (endereço de retirada) até o
+            cliente.
           </p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div
+            role="radiogroup"
+            aria-label="Como cobrar a entrega"
+            className="mt-3 grid grid-cols-2 gap-2"
+          >
             {(
               [
-                ["Taxa mínima (R$)", baseFee, setBaseFee],
-                ["Incluso até (km)", includedKm, setIncludedKm],
-                ["Por km extra (R$)", pricePerKm, setPricePerKm],
-                ["Entrega até (km)", maxKm, setMaxKm],
+                ["calculated", "Calculada pela distância", "Mínimo + valor por km extra"],
+                ["fixed", "Valor fixo", "O mesmo valor para qualquer distância"],
               ] as const
-            ).map(([label, value, setValue]) => (
-              <label key={label} className="text-xs font-semibold">
-                {label}
-                <Input
-                  inputMode="decimal"
-                  value={value}
-                  onChange={event => setValue(event.target.value)}
-                  className="mt-1"
-                />
-              </label>
+            ).map(([mode, title, hint]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={feeMode === mode}
+                onClick={() => setFeeMode(mode)}
+                className={`rounded-xl border p-3 text-left transition ${
+                  feeMode === mode
+                    ? "border-[#2f5d50] bg-[#eef4f0]"
+                    : "border-[#eeeae3] hover:border-[#cfc8bc]"
+                }`}
+              >
+                <span className="block text-sm font-semibold">{title}</span>
+                <span className="block text-xs text-[#776e63]">{hint}</span>
+              </button>
             ))}
           </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {feeMode === "calculated" ? (
+              <>
+                {numberField("Taxa mínima (R$)", baseFee, setBaseFee)}
+                {numberField("Incluso até (km)", includedKm, setIncludedKm)}
+                {numberField("Por km extra (R$)", pricePerKm, setPricePerKm)}
+              </>
+            ) : (
+              numberField("Valor da entrega (R$)", fixedFee, setFixedFee)
+            )}
+            {numberField("Grátis até (km)", freeKm, setFreeKm, "0 = sem entrega grátis")}
+            {numberField("Entrega até (km)", maxKm, setMaxKm)}
+          </div>
+          {feeMode === "calculated" && (
+            <p className="mt-2 text-xs text-[#a79b8d]">
+              Valores iniciais: referência do que o iFood paga ao entregador de
+              moto. Ajuste para a sua região.
+            </p>
+          )}
+          {preview && (
+            <p className="mt-2 rounded-lg bg-[#f8faf7] p-2 text-xs text-[#414941]">
+              O cliente vê: {preview}
+            </p>
+          )}
         </div>
         <Toggle
           checked={useHours}
@@ -213,6 +282,9 @@ export function OrderingSettingsCard() {
               deliveryIncludedKm: parse(includedKm),
               deliveryPricePerKm: parse(pricePerKm),
               deliveryMaxKm: parse(maxKm),
+              deliveryFeeMode: feeMode,
+              deliveryFixedFee: parse(fixedFee),
+              deliveryFreeKm: parse(freeKm),
             })
           }
           disabled={mutation.isPending || pickupInvalid || pricingInvalid}

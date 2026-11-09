@@ -198,3 +198,15 @@ describe("fichas técnicas", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("opções da taxa de entrega", () => {
+  const base = { baseFee: 7.5, includedKm: 3, pricePerKm: 1.5, maxKm: 15 };
+  it("é grátis até a distância escolhida", () => {
+    expect(estimateDeliveryFee(2, { ...base, freeUpToKm: 3 })).toBe(0);
+    expect(estimateDeliveryFee(5, { ...base, freeUpToKm: 3 })).toBe(10.5);
+  });
+  it("cobra o valor fixo em qualquer distância", () => {
+    expect(estimateDeliveryFee(9, { ...base, mode: "fixed", fixedFee: 6 })).toBe(6);
+    expect(estimateDeliveryFee(1, { ...base, mode: "fixed", fixedFee: 6, freeUpToKm: 2 })).toBe(0);
+  });
+});

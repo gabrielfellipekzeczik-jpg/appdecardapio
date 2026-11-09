@@ -7,7 +7,15 @@ export type StoreInfo = {
   hours: string[];
   payments: string[];
   pickup: boolean;
-  delivery: { baseFee: number; includedKm: number; pricePerKm: number; maxKm: number } | null;
+  delivery: {
+    mode?: "calculated" | "fixed";
+    fixedFee?: number;
+    freeUpToKm?: number;
+    baseFee: number;
+    includedKm: number;
+    pricePerKm: number;
+    maxKm: number;
+  } | null;
 };
 
 export type CatalogItem = { name: string; price: number; description: string | null; category: string | null };
@@ -57,8 +65,12 @@ function storeRules(store: StoreInfo | undefined, now: Date): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(now);
-  const delivery = store.delivery
-    ? `Entrega com taxa pela distância: ${money(store.delivery.baseFee)} até ${store.delivery.includedKm} km e ${money(store.delivery.pricePerKm)} por km a mais, até ${store.delivery.maxKm} km. O valor exato aparece no link ao informar o endereço.`
+  const d = store.delivery;
+  const free = d?.freeUpToKm ? `grátis até ${d.freeUpToKm} km; depois ` : "";
+  const delivery = d
+    ? d.mode === "fixed"
+      ? `Entrega: ${free}taxa fixa de ${money(d.fixedFee ?? 0)}, até ${d.maxKm} km. O valor exato aparece ao informar o endereço.`
+      : `Entrega: ${free}${money(d.baseFee)} até ${d.includedKm} km e ${money(d.pricePerKm)} por km a mais, até ${d.maxKm} km. O valor exato aparece ao informar o endereço.`
     : "Taxa de entrega: o valor aparece no link ao informar o endereço.";
   return [
     `Agora: ${clock} (horário de Brasília).`,
@@ -203,7 +215,7 @@ export function validateReply(reply: string, ctx: CompanyContext): string | null
   for (const item of ctx.items) for (let n = 1; n <= 10; n++) allowed.add(Math.round(item.price * 100) * n);
   const delivery = ctx.store?.delivery;
   if (delivery)
-    for (const value of [delivery.baseFee, delivery.pricePerKm]) allowed.add(Math.round(value * 100));
+    for (const value of [delivery.baseFee, delivery.pricePerKm, delivery.fixedFee ?? 0]) allowed.add(Math.round(value * 100));
   for (const match of text.matchAll(/R\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/g)) {
     const cents = toCents(`${match[1]}${match[2] ? `,${match[2].padEnd(2, "0")}` : ""}`);
     if (!allowed.has(cents)) return null;

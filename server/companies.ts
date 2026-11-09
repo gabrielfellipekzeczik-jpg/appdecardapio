@@ -2,7 +2,7 @@
 import type { OpeningHours } from "@shared/store-rules";
 import { effectiveFeePercent } from "@shared/platform-fee";
 import { ENV } from "./_core/env";
-import { getDb, type Company } from "./db";
+import { getDb, getIntegrationSettings, type Company } from "./db";
 
 const RESERVED_SLUGS = new Set(["admin-login", "super-admin", "cadastrar", "api", "404", "admin", "cozinha"]);
 
@@ -44,11 +44,13 @@ export async function listCompanies() {
     const rows = (orders ?? []) as Array<{ total: string; platformFeeAmount: string | null }>;
     const revenue = rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
     const platformFee = rows.reduce((sum, r) => sum + Number(r.platformFeeAmount ?? 0), 0);
+    const mercadoPago = await getIntegrationSettings(company.id, "mercadopago").catch(() => undefined);
     return {
       company,
       revenue,
       platformFee,
       orderCount: rows.length,
+      mpConnected: Boolean(mercadoPago?.connected),
       feePercent: effectiveFeePercent(company.mp_fee_percent, ENV.platformFeePercent),
       customFee: company.mp_fee_percent !== null && company.mp_fee_percent !== undefined,
     };
@@ -80,6 +82,9 @@ export async function updateCompanyOrdering(companyId: number, input: {
   deliveryIncludedKm?: number;
   deliveryPricePerKm?: number;
   deliveryMaxKm?: number;
+  deliveryFeeMode?: "calculated" | "fixed";
+  deliveryFixedFee?: number;
+  deliveryFreeKm?: number;
 }) {
   const db = getDb();
   const { error } = await db.from("companies").update(input as Record<string, unknown>).eq("id", companyId);

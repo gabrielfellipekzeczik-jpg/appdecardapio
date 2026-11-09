@@ -135,16 +135,17 @@ export function MenuManager() {
           </div>
         )}
         {items.data?.map((item) => (
-          <div key={item.id} className="flex items-center gap-4 rounded-xl border border-[#eeeae3] p-3">
+          <div key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#eeeae3] p-3 sm:flex-nowrap sm:gap-4">
             {item.imageUrl
-              ? <img src={item.imageUrl} alt={item.name} className="h-16 w-16 shrink-0 rounded-lg object-cover" />
-              : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#f1ece3] text-[#c9b9a6]"><ImagePlus className="h-5 w-5" /></div>}
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{item.name}</p>
-              <p className="mt-0.5 text-sm text-[#776e63]">{money(item.price)} · {categoryName(item.categoryId)}</p>
+              ? <img src={item.imageUrl} alt={item.name} className="h-14 w-14 shrink-0 rounded-lg object-cover sm:h-16 sm:w-16" />
+              : <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#f1ece3] text-[#c9b9a6] sm:h-16 sm:w-16"><ImagePlus className="h-5 w-5" /></div>}
+            <div className="min-w-0 flex-1 basis-[calc(100%-4.5rem)] sm:basis-auto">
+              <p className="line-clamp-2 font-semibold leading-snug">{item.name}</p>
+              <p className="mt-0.5 text-sm text-[#776e63]"><span className="whitespace-nowrap font-semibold text-[#29251f]">{money(item.price)}</span> · {categoryName(item.categoryId)}</p>
               {item.featured && <Badge className="mt-1 border-0 bg-[#fff0d7] text-[#a05c32]">Destaque</Badge>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center justify-end gap-2 border-t border-[#f1ece3] pt-2 sm:w-auto sm:border-0 sm:pt-0">
+              <span className="mr-auto text-xs text-[#776e63] sm:hidden">{item.active ? "Disponível" : "Oculto"}</span>
               <span className="hidden text-xs text-[#776e63] sm:inline">{item.active ? "Disponível" : "Oculto"}</span>
               <Switch checked={item.active} onCheckedChange={(active) => updateItem.mutate({ id: item.id, data: { active } })} aria-label={`Disponibilidade de ${item.name}`} />
               <Button variant="ghost" size="icon" onClick={() => openEdit(item)} aria-label={`Editar ${item.name}`}><Pencil className="h-4 w-4" /></Button>

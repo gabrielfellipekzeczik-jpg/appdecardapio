@@ -18,6 +18,20 @@ function effectiveFeePercent(companyPercent, defaultPercent) {
 function platformFeeAmount(transactionAmount, percent) {
   return Math.round(transactionAmount * (percent / 100) * 100) / 100;
 }
+function isValidFeePercent(percent) {
+  return Number.isFinite(percent) && percent > 0 && percent <= MAX_PLATFORM_FEE_PERCENT;
+}
+function requiredFeeAmount(transactionAmount, percent) {
+  return Math.max(0.01, platformFeeAmount(transactionAmount, percent));
+}
+function retainedPlatformFee(payment) {
+  const fromDetails = (payment.fee_details ?? []).filter((detail) => detail.type === "application_fee" || detail.type === "marketplace_fee").reduce((sum, detail) => sum + (Number(detail.amount) || 0), 0);
+  const direct = Number(payment.application_fee ?? payment.marketplace_fee ?? 0) || 0;
+  return Math.round(Math.max(fromDetails, direct) * 100) / 100;
+}
+function feeWasRetained(retained, expected) {
+  return expected <= 0 || retained + 5e-3 >= expected - 0.01;
+}
 var MAX_PLATFORM_FEE_PERCENT;
 var init_platform_fee = __esm({
   "shared/platform-fee.ts"() {
@@ -2081,11 +2095,13 @@ async function listCompanies() {
     const rows = orders2 ?? [];
     const revenue = rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
     const platformFee = rows.reduce((sum, r) => sum + Number(r.platformFeeAmount ?? 0), 0);
+    const mercadoPago = await getIntegrationSettings(company.id, "mercadopago").catch(() => void 0);
     return {
       company,
       revenue,
       platformFee,
       orderCount: rows.length,
+      mpConnected: Boolean(mercadoPago?.connected),
       feePercent: effectiveFeePercent(company.mp_fee_percent, ENV.platformFeePercent),
       customFee: company.mp_fee_percent !== null && company.mp_fee_percent !== void 0
     };
@@ -2118,6 +2134,397 @@ var init_companies = __esm({
     init_env();
     init_db();
     RESERVED_SLUGS = /* @__PURE__ */ new Set(["admin-login", "super-admin", "cadastrar", "api", "404", "admin", "cozinha"]);
+  }
+});
+
+// server/integrations/mercadoPago.ts
+var mercadoPago_exports = {};
+__export(mercadoPago_exports, {
+  PLATFORM_FEE_MISSING_MESSAGE: () => PLATFORM_FEE_MISSING_MESSAGE,
+  buildAuthorizeUrl: () => buildAuthorizeUrl,
+  buildPayerDetails: () => buildPayerDetails,
+  cancelPayment: () => cancelPayment,
+  computeApplicationFee: () => computeApplicationFee,
+  createPayment: () => createPayment,
+  createPaymentLink: () => createPaymentLink,
+  decodeState: () => decodeState,
+  ensureFeeRetained: () => ensureFeeRetained,
+  exchangeCodeForCredentials: () => exchangeCodeForCredentials,
+  feePercentFor: () => feePercentFor,
+  getConnectedCredentials: () => getConnectedCredentials,
+  getPayment: () => getPayment,
+  getPaymentLink: () => getPaymentLink,
+  getPaymentStatus: () => getPaymentStatus,
+  isBoletoPaymentMethod: () => isBoletoPaymentMethod,
+  isMercadoPagoConfigured: () => isMercadoPagoConfigured,
+  payerFieldsFor: () => payerFieldsFor,
+  platformFeeReady: () => platformFeeReady,
+  refundPayment: () => refundPayment,
+  requiredApplicationFee: () => requiredApplicationFee,
+  saveCredentials: () => saveCredentials
+});
+function isBoletoPaymentMethod(paymentMethodId) {
+  return /(?:boleto|ticket|bolbradesco|^pec$)/i.test(
+    paymentMethodId?.trim() ?? ""
+  );
+}
+function isMercadoPagoConfigured() {
+  return Boolean(ENV.mpClientId && ENV.mpClientSecret && ENV.mpRedirectUri);
+}
+function buildAuthorizeUrl(companyId) {
+  const url = new URL(MP_AUTHORIZE_URL);
+  url.searchParams.set("client_id", ENV.mpClientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("platform_id", "mp");
+  url.searchParams.set("redirect_uri", ENV.mpRedirectUri);
+  url.searchParams.set(
+    "state",
+    Buffer.from(
+      JSON.stringify({ companyId, nonce: Math.random().toString(36).slice(2) })
+    ).toString("base64")
+  );
+  return url.toString();
+}
+function decodeState(state) {
+  const parsed = JSON.parse(Buffer.from(state, "base64").toString("utf-8"));
+  if (!Number.isInteger(parsed.companyId))
+    throw new Error("Invalid OAuth state");
+  return parsed;
+}
+async function exchangeCodeForCredentials(code) {
+  const response = await fetch(MP_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: ENV.mpClientId,
+      client_secret: ENV.mpClientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: ENV.mpRedirectUri
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Mercado Pago token exchange failed (${response.status}): ${detail}`
+    );
+  }
+  const data = await response.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    publicKey: data.public_key,
+    userId: data.user_id,
+    liveMode: data.live_mode
+  };
+}
+async function refreshCredentials(refreshToken) {
+  const response = await fetch(MP_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: ENV.mpClientId,
+      client_secret: ENV.mpClientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Mercado Pago token refresh failed (${response.status}): ${detail}`
+    );
+  }
+  const data = await response.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    publicKey: data.public_key,
+    userId: data.user_id,
+    liveMode: data.live_mode
+  };
+}
+async function getConnectedCredentials(companyId) {
+  return getIntegrationCredentials(
+    companyId,
+    "mercadopago"
+  );
+}
+async function saveCredentials(companyId, credentials) {
+  await saveIntegrationCredentials(companyId, "mercadopago", credentials, {
+    publicKey: credentials.publicKey,
+    userId: credentials.userId,
+    liveMode: credentials.liveMode
+  });
+}
+function buildPayerDetails(input) {
+  const [firstName, ...rest] = (input.payer.name ?? "").trim().split(/\s+/);
+  const names = {
+    ...firstName ? { first_name: firstName } : {},
+    ...rest.length ? { last_name: rest.join(" ") } : {}
+  };
+  const digits = (input.payer.phone ?? "").replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+  return {
+    payer: { email: input.payer.email, ...names },
+    additional_info: {
+      payer: {
+        ...names,
+        ...digits.length >= 10 ? { phone: { area_code: digits.slice(0, 2), number: digits.slice(2) } } : {}
+      },
+      items: (input.items ?? []).map((item) => ({
+        id: String(item.id),
+        title: item.title,
+        quantity: item.quantity,
+        unit_price: item.unitPrice
+      }))
+    }
+  };
+}
+function payerFieldsFor(input) {
+  return input.paymentMethodId === "pix" ? { payer: { email: input.payer.email } } : buildPayerDetails(input);
+}
+function computeApplicationFee(transactionAmount, percent = ENV.platformFeePercent) {
+  return platformFeeAmount(transactionAmount, percent);
+}
+async function requiredApplicationFee(companyId, transactionAmount) {
+  const percent = await feePercentFor(companyId);
+  if (!isValidFeePercent(percent)) {
+    console.error(
+      `[mercadopago] taxa da plataforma inv\xE1lida para a empresa ${companyId}: ${percent}%`
+    );
+    throw new Error(PLATFORM_FEE_MISSING_MESSAGE);
+  }
+  return requiredFeeAmount(transactionAmount, percent);
+}
+async function platformFeeReady(companyId) {
+  return isValidFeePercent(await feePercentFor(companyId));
+}
+async function refundPayment(companyId, paymentId) {
+  const response = await sellerPaymentRequest(
+    companyId,
+    `${paymentId}/refunds`,
+    {
+      method: "POST",
+      body: "{}",
+      headers: { "X-Idempotency-Key": `fee-refund-${paymentId}` }
+    }
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error("[mercadopago] estorno falhou", paymentId, response.status, detail);
+  }
+  return response.ok;
+}
+async function ensureFeeRetained(companyId, paymentId, payment, expectedFee) {
+  const retained = retainedPlatformFee(payment);
+  if (feeWasRetained(retained, expectedFee)) return true;
+  console.error(
+    `[mercadopago] pagamento ${paymentId} aprovado sem a taxa (retido ${retained}, esperado ${expectedFee}); estornando`
+  );
+  await refundPayment(companyId, paymentId);
+  return false;
+}
+async function feePercentFor(companyId) {
+  const { data } = await getDb().from("companies").select("mp_fee_percent").eq("id", companyId).maybeSingle();
+  return effectiveFeePercent(
+    data?.mp_fee_percent,
+    ENV.platformFeePercent
+  );
+}
+async function createPayment(input) {
+  const credentials = await getConnectedCredentials(input.companyId);
+  if (!credentials) throw new Error("Mercado Pago is not connected");
+  const applicationFee = await requiredApplicationFee(
+    input.companyId,
+    input.transactionAmount
+  );
+  const body = {
+    transaction_amount: input.transactionAmount,
+    application_fee: applicationFee,
+    description: input.description,
+    payment_method_id: input.paymentMethodId,
+    token: input.token,
+    installments: input.installments ?? 1,
+    issuer_id: input.issuerId,
+    ...payerFieldsFor(input),
+    external_reference: String(input.orderId),
+    notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : void 0
+  };
+  const idempotencySuffix = Math.random().toString(36).slice(2, 10);
+  const attempt = async (accessToken) => fetch(MP_PAYMENTS_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "X-Idempotency-Key": `order-${input.orderId}-${idempotencySuffix}`
+    },
+    body: JSON.stringify(body)
+  });
+  let response = await attempt(credentials.accessToken);
+  if (response.status === 401) {
+    const refreshed = await refreshCredentials(credentials.refreshToken);
+    await saveCredentials(input.companyId, refreshed);
+    response = await attempt(refreshed.accessToken);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error("[mercadopago] payment failed", response.status, detail, {
+      orderId: input.orderId,
+      amount: input.transactionAmount,
+      applicationFee,
+      method: input.paymentMethodId
+    });
+    let reason = detail.slice(0, 300);
+    try {
+      const parsed = JSON.parse(detail);
+      const cause = parsed.cause?.[0];
+      reason = [cause?.code, cause?.description || parsed.message || parsed.error].filter(Boolean).join(" \xB7 ") || reason;
+    } catch {
+    }
+    throw new Error(`Mercado Pago recusou o pagamento (${response.status}): ${reason}`);
+  }
+  const payment = await response.json();
+  return { ...payment, applicationFee };
+}
+async function sellerPaymentRequest(companyId, paymentId, init) {
+  const credentials = await getConnectedCredentials(companyId);
+  if (!credentials) throw new Error("Mercado Pago is not connected");
+  const [id, ...rest] = paymentId.split("/");
+  const url = `${MP_PAYMENTS_URL}/${encodeURIComponent(id)}${rest.length ? `/${rest.join("/")}` : ""}`;
+  const attempt = (accessToken) => fetch(url, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`
+    }
+  });
+  const response = await attempt(credentials.accessToken);
+  if (response.status !== 401) return response;
+  const refreshed = await refreshCredentials(credentials.refreshToken);
+  await saveCredentials(companyId, refreshed);
+  return attempt(refreshed.accessToken);
+}
+async function getPayment(companyId, paymentId) {
+  const response = await sellerPaymentRequest(companyId, paymentId);
+  if (!response.ok)
+    throw new Error(`Falha ao consultar pagamento (${response.status})`);
+  return await response.json();
+}
+async function cancelPayment(companyId, paymentId) {
+  const response = await sellerPaymentRequest(companyId, paymentId, {
+    method: "PUT",
+    body: JSON.stringify({ status: "cancelled" })
+  });
+  return response.ok;
+}
+function paymentLinkUrl(preference, liveMode) {
+  return liveMode ? preference.init_point : preference.sandbox_init_point || preference.init_point;
+}
+async function createPaymentLink(input) {
+  const credentials = await getConnectedCredentials(input.companyId);
+  if (!credentials)
+    throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
+  const applicationFee = await requiredApplicationFee(
+    input.companyId,
+    input.transactionAmount
+  );
+  const body = {
+    items: [
+      {
+        id: `order-${input.orderId}`,
+        title: input.description.slice(0, 250),
+        quantity: 1,
+        currency_id: "BRL",
+        unit_price: input.transactionAmount
+      }
+    ],
+    external_reference: String(input.orderId),
+    marketplace_fee: applicationFee,
+    notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : void 0,
+    ...input.payerEmail ? { payer: { email: input.payerEmail } } : {}
+  };
+  const attempt = async (accessToken) => fetch(MP_PREFERENCES_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "X-Idempotency-Key": `manual-order-link-${input.orderId}`
+    },
+    body: JSON.stringify(body)
+  });
+  let response = await attempt(credentials.accessToken);
+  let current = credentials;
+  if (response.status === 401) {
+    current = await refreshCredentials(credentials.refreshToken);
+    await saveCredentials(input.companyId, current);
+    response = await attempt(current.accessToken);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Mercado Pago link creation failed (${response.status}): ${detail}`
+    );
+  }
+  const preference = await response.json();
+  if (!preference.id || !preference.init_point)
+    throw new Error("Mercado Pago n\xE3o retornou um link de pagamento v\xE1lido.");
+  return {
+    id: preference.id,
+    url: paymentLinkUrl(preference, current.liveMode),
+    applicationFee
+  };
+}
+async function getPaymentLink(companyId, preferenceId) {
+  let credentials = await getConnectedCredentials(companyId);
+  if (!credentials)
+    throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
+  const request = (accessToken) => fetch(`${MP_PREFERENCES_URL}/${encodeURIComponent(preferenceId)}`, {
+    headers: { authorization: `Bearer ${accessToken}` }
+  });
+  let response = await request(credentials.accessToken);
+  if (response.status === 401) {
+    credentials = await refreshCredentials(credentials.refreshToken);
+    await saveCredentials(companyId, credentials);
+    response = await request(credentials.accessToken);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Mercado Pago preference lookup failed (${response.status}): ${detail}`
+    );
+  }
+  const preference = await response.json();
+  if (!preference.id || !preference.init_point)
+    throw new Error("Mercado Pago n\xE3o retornou um link de pagamento v\xE1lido.");
+  return paymentLinkUrl(preference, credentials.liveMode);
+}
+async function getPaymentStatus(companyId, paymentId) {
+  const credentials = await getConnectedCredentials(companyId);
+  if (!credentials) throw new Error("Mercado Pago is not connected");
+  const response = await fetch(`${MP_PAYMENTS_URL}/${paymentId}`, {
+    headers: { authorization: `Bearer ${credentials.accessToken}` }
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Mercado Pago payment lookup failed (${response.status}): ${detail}`
+    );
+  }
+  return await response.json();
+}
+var MP_AUTHORIZE_URL, MP_TOKEN_URL, MP_PAYMENTS_URL, MP_PREFERENCES_URL, PLATFORM_FEE_MISSING_MESSAGE;
+var init_mercadoPago = __esm({
+  "server/integrations/mercadoPago.ts"() {
+    "use strict";
+    init_env();
+    init_db();
+    init_platform_fee();
+    MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
+    MP_TOKEN_URL = "https://api.mercadopago.com/oauth/token";
+    MP_PAYMENTS_URL = "https://api.mercadopago.com/v1/payments";
+    MP_PREFERENCES_URL = "https://api.mercadopago.com/checkout/preferences";
+    PLATFORM_FEE_MISSING_MESSAGE = "Pagamento online indispon\xEDvel nesta loja no momento. Escolha pagar na entrega ou tente mais tarde.";
   }
 });
 
@@ -2172,14 +2579,37 @@ function calculateOwnCourierFee(distanceKm, pricePerKm) {
   return Math.round(distanceKm * pricePerKm * 100) / 100;
 }
 var DEFAULT_DELIVERY_PRICING = {
+  mode: "calculated",
+  fixedFee: 7.5,
+  freeUpToKm: 0,
   baseFee: 7.5,
   includedKm: 3,
   pricePerKm: 1.5,
   maxKm: 15
 };
 function estimateDeliveryFee(distanceKm, pricing) {
+  if ((pricing.freeUpToKm ?? 0) > 0 && distanceKm <= (pricing.freeUpToKm ?? 0))
+    return 0;
+  if (pricing.mode === "fixed")
+    return Math.round((pricing.fixedFee ?? 0) * 100) / 100;
   const extraKm = Math.max(0, distanceKm - pricing.includedKm);
   return Math.round((pricing.baseFee + extraKm * pricing.pricePerKm) * 100) / 100;
+}
+function deliveryPricingFrom(company) {
+  const value = (raw, fallback) => {
+    const parsed = Number(raw);
+    return raw === null || raw === void 0 || raw === "" || !Number.isFinite(parsed) ? fallback : parsed;
+  };
+  const base = DEFAULT_DELIVERY_PRICING;
+  return {
+    mode: company.deliveryFeeMode === "fixed" ? "fixed" : "calculated",
+    fixedFee: value(company.deliveryFixedFee, base.fixedFee),
+    freeUpToKm: value(company.deliveryFreeKm, base.freeUpToKm),
+    baseFee: value(company.deliveryBaseFee, base.baseFee),
+    includedKm: value(company.deliveryIncludedKm, base.includedKm),
+    pricePerKm: value(company.deliveryPricePerKm, base.pricePerKm),
+    maxKm: value(company.deliveryMaxKm, base.maxKm)
+  };
 }
 function minorUnitsToBRL(value, currency) {
   if (currency.toUpperCase() !== "BRL" || !Number.isSafeInteger(value) || value < 0) {
@@ -2355,278 +2785,7 @@ var systemRouter = router({
 init_companies();
 init_testData();
 init_db();
-
-// server/integrations/mercadoPago.ts
-init_env();
-init_db();
-init_platform_fee();
-var MP_AUTHORIZE_URL = "https://auth.mercadopago.com/authorization";
-var MP_TOKEN_URL = "https://api.mercadopago.com/oauth/token";
-var MP_PAYMENTS_URL = "https://api.mercadopago.com/v1/payments";
-var MP_PREFERENCES_URL = "https://api.mercadopago.com/checkout/preferences";
-function isBoletoPaymentMethod(paymentMethodId) {
-  return /(?:boleto|ticket|bolbradesco|^pec$)/i.test(
-    paymentMethodId?.trim() ?? ""
-  );
-}
-function isMercadoPagoConfigured() {
-  return Boolean(ENV.mpClientId && ENV.mpClientSecret && ENV.mpRedirectUri);
-}
-function buildAuthorizeUrl(companyId) {
-  const url = new URL(MP_AUTHORIZE_URL);
-  url.searchParams.set("client_id", ENV.mpClientId);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("platform_id", "mp");
-  url.searchParams.set("redirect_uri", ENV.mpRedirectUri);
-  url.searchParams.set(
-    "state",
-    Buffer.from(
-      JSON.stringify({ companyId, nonce: Math.random().toString(36).slice(2) })
-    ).toString("base64")
-  );
-  return url.toString();
-}
-async function refreshCredentials(refreshToken) {
-  const response = await fetch(MP_TOKEN_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      client_id: ENV.mpClientId,
-      client_secret: ENV.mpClientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken
-    })
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Mercado Pago token refresh failed (${response.status}): ${detail}`
-    );
-  }
-  const data = await response.json();
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    publicKey: data.public_key,
-    userId: data.user_id,
-    liveMode: data.live_mode
-  };
-}
-async function getConnectedCredentials(companyId) {
-  return getIntegrationCredentials(
-    companyId,
-    "mercadopago"
-  );
-}
-async function saveCredentials(companyId, credentials) {
-  await saveIntegrationCredentials(companyId, "mercadopago", credentials, {
-    publicKey: credentials.publicKey,
-    userId: credentials.userId,
-    liveMode: credentials.liveMode
-  });
-}
-function buildPayerDetails(input) {
-  const [firstName, ...rest] = (input.payer.name ?? "").trim().split(/\s+/);
-  const names = {
-    ...firstName ? { first_name: firstName } : {},
-    ...rest.length ? { last_name: rest.join(" ") } : {}
-  };
-  const digits = (input.payer.phone ?? "").replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
-  return {
-    payer: { email: input.payer.email, ...names },
-    additional_info: {
-      payer: {
-        ...names,
-        ...digits.length >= 10 ? { phone: { area_code: digits.slice(0, 2), number: digits.slice(2) } } : {}
-      },
-      items: (input.items ?? []).map((item) => ({
-        id: String(item.id),
-        title: item.title,
-        quantity: item.quantity,
-        unit_price: item.unitPrice
-      }))
-    }
-  };
-}
-function payerFieldsFor(input) {
-  return input.paymentMethodId === "pix" ? { payer: { email: input.payer.email } } : buildPayerDetails(input);
-}
-function computeApplicationFee(transactionAmount, percent = ENV.platformFeePercent) {
-  return platformFeeAmount(transactionAmount, percent);
-}
-async function feePercentFor(companyId) {
-  const { data } = await getDb().from("companies").select("mp_fee_percent").eq("id", companyId).maybeSingle();
-  return effectiveFeePercent(
-    data?.mp_fee_percent,
-    ENV.platformFeePercent
-  );
-}
-async function createPayment(input) {
-  const credentials = await getConnectedCredentials(input.companyId);
-  if (!credentials) throw new Error("Mercado Pago is not connected");
-  const applicationFee = computeApplicationFee(
-    input.transactionAmount,
-    await feePercentFor(input.companyId)
-  );
-  const body = {
-    transaction_amount: input.transactionAmount,
-    ...applicationFee > 0 ? { application_fee: applicationFee } : {},
-    description: input.description,
-    payment_method_id: input.paymentMethodId,
-    token: input.token,
-    installments: input.installments ?? 1,
-    issuer_id: input.issuerId,
-    ...payerFieldsFor(input),
-    external_reference: String(input.orderId),
-    notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : void 0
-  };
-  const idempotencySuffix = Math.random().toString(36).slice(2, 10);
-  const attempt = async (accessToken) => fetch(MP_PAYMENTS_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
-      "X-Idempotency-Key": `order-${input.orderId}-${idempotencySuffix}`
-    },
-    body: JSON.stringify(body)
-  });
-  let response = await attempt(credentials.accessToken);
-  if (response.status === 401) {
-    const refreshed = await refreshCredentials(credentials.refreshToken);
-    await saveCredentials(input.companyId, refreshed);
-    response = await attempt(refreshed.accessToken);
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.error("[mercadopago] payment failed", response.status, detail, {
-      orderId: input.orderId,
-      amount: input.transactionAmount,
-      applicationFee,
-      method: input.paymentMethodId
-    });
-    let reason = detail.slice(0, 300);
-    try {
-      const parsed = JSON.parse(detail);
-      const cause = parsed.cause?.[0];
-      reason = [cause?.code, cause?.description || parsed.message || parsed.error].filter(Boolean).join(" \xB7 ") || reason;
-    } catch {
-    }
-    throw new Error(`Mercado Pago recusou o pagamento (${response.status}): ${reason}`);
-  }
-  const payment = await response.json();
-  return { ...payment, applicationFee };
-}
-async function sellerPaymentRequest(companyId, paymentId, init) {
-  const credentials = await getConnectedCredentials(companyId);
-  if (!credentials) throw new Error("Mercado Pago is not connected");
-  const url = `${MP_PAYMENTS_URL}/${encodeURIComponent(paymentId)}`;
-  const attempt = (accessToken) => fetch(url, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`
-    }
-  });
-  const response = await attempt(credentials.accessToken);
-  if (response.status !== 401) return response;
-  const refreshed = await refreshCredentials(credentials.refreshToken);
-  await saveCredentials(companyId, refreshed);
-  return attempt(refreshed.accessToken);
-}
-async function getPayment(companyId, paymentId) {
-  const response = await sellerPaymentRequest(companyId, paymentId);
-  if (!response.ok)
-    throw new Error(`Falha ao consultar pagamento (${response.status})`);
-  return await response.json();
-}
-async function cancelPayment(companyId, paymentId) {
-  const response = await sellerPaymentRequest(companyId, paymentId, {
-    method: "PUT",
-    body: JSON.stringify({ status: "cancelled" })
-  });
-  return response.ok;
-}
-function paymentLinkUrl(preference, liveMode) {
-  return liveMode ? preference.init_point : preference.sandbox_init_point || preference.init_point;
-}
-async function createPaymentLink(input) {
-  const credentials = await getConnectedCredentials(input.companyId);
-  if (!credentials)
-    throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
-  const applicationFee = computeApplicationFee(
-    input.transactionAmount,
-    await feePercentFor(input.companyId)
-  );
-  const body = {
-    items: [
-      {
-        id: `order-${input.orderId}`,
-        title: input.description.slice(0, 250),
-        quantity: 1,
-        currency_id: "BRL",
-        unit_price: input.transactionAmount
-      }
-    ],
-    external_reference: String(input.orderId),
-    marketplace_fee: applicationFee,
-    notification_url: ENV.mpRedirectUri ? `${new URL("/api/webhooks/mercadopago", ENV.mpRedirectUri).toString()}?companyId=${input.companyId}` : void 0,
-    ...input.payerEmail ? { payer: { email: input.payerEmail } } : {}
-  };
-  const attempt = async (accessToken) => fetch(MP_PREFERENCES_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
-      "X-Idempotency-Key": `manual-order-link-${input.orderId}`
-    },
-    body: JSON.stringify(body)
-  });
-  let response = await attempt(credentials.accessToken);
-  let current = credentials;
-  if (response.status === 401) {
-    current = await refreshCredentials(credentials.refreshToken);
-    await saveCredentials(input.companyId, current);
-    response = await attempt(current.accessToken);
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Mercado Pago link creation failed (${response.status}): ${detail}`
-    );
-  }
-  const preference = await response.json();
-  if (!preference.id || !preference.init_point)
-    throw new Error("Mercado Pago n\xE3o retornou um link de pagamento v\xE1lido.");
-  return {
-    id: preference.id,
-    url: paymentLinkUrl(preference, current.liveMode),
-    applicationFee
-  };
-}
-async function getPaymentLink(companyId, preferenceId) {
-  let credentials = await getConnectedCredentials(companyId);
-  if (!credentials)
-    throw new Error("Mercado Pago n\xE3o est\xE1 conectado para esta loja.");
-  const request = (accessToken) => fetch(`${MP_PREFERENCES_URL}/${encodeURIComponent(preferenceId)}`, {
-    headers: { authorization: `Bearer ${accessToken}` }
-  });
-  let response = await request(credentials.accessToken);
-  if (response.status === 401) {
-    credentials = await refreshCredentials(credentials.refreshToken);
-    await saveCredentials(companyId, credentials);
-    response = await request(credentials.accessToken);
-  }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Mercado Pago preference lookup failed (${response.status}): ${detail}`
-    );
-  }
-  const preference = await response.json();
-  if (!preference.id || !preference.init_point)
-    throw new Error("Mercado Pago n\xE3o retornou um link de pagamento v\xE1lido.");
-  return paymentLinkUrl(preference, credentials.liveMode);
-}
+init_mercadoPago();
 
 // server/integrations/uberDirect.ts
 init_db();
@@ -3060,17 +3219,7 @@ var menuItemInput = z2.object({
   featured: z2.boolean().optional()
 });
 function deliveryPricingOf(company) {
-  const value = (raw, fallback) => {
-    const parsed = Number(raw);
-    return raw === null || raw === void 0 || !Number.isFinite(parsed) ? fallback : parsed;
-  };
-  const base = DEFAULT_DELIVERY_PRICING;
-  return {
-    baseFee: value(company.deliveryBaseFee, base.baseFee),
-    includedKm: value(company.deliveryIncludedKm, base.includedKm),
-    pricePerKm: value(company.deliveryPricePerKm, base.pricePerKm),
-    maxKm: value(company.deliveryMaxKm, base.maxKm)
-  };
+  return deliveryPricingFrom(company);
 }
 async function quoteModeFor(company) {
   const provider = await getActiveDeliveryProvider(company.id);
@@ -3376,7 +3525,10 @@ var appRouter = router({
         deliveryBaseFee: z2.number().min(0).max(1e3).optional(),
         deliveryIncludedKm: z2.number().min(0).max(100).optional(),
         deliveryPricePerKm: z2.number().min(0).max(100).optional(),
-        deliveryMaxKm: z2.number().positive().max(200).optional()
+        deliveryMaxKm: z2.number().positive().max(200).optional(),
+        deliveryFeeMode: z2.enum(["calculated", "fixed"]).optional(),
+        deliveryFixedFee: z2.number().min(0).max(1e3).optional(),
+        deliveryFreeKm: z2.number().min(0).max(200).optional()
       })
     ).mutation(
       ({ ctx, input }) => updateCompanyOrdering(ctx.companyId, input)
@@ -3431,7 +3583,7 @@ var appRouter = router({
     setFeePercent: superAdminProcedure.input(
       z2.object({
         companyId: z2.number().int().positive(),
-        percent: z2.number().min(0).max(MAX_PLATFORM_FEE_PERCENT).multipleOf(0.01).nullable()
+        percent: z2.number().min(0.01, "A taxa precisa ser maior que zero.").max(MAX_PLATFORM_FEE_PERCENT).multipleOf(0.01).nullable()
       })
     ).mutation(async ({ input }) => {
       await setCompanyFeePercent(input.companyId, input.percent);
@@ -4064,12 +4216,13 @@ var appRouter = router({
     // public key to initialize the Brick client-side. Never expose the access token.
     checkoutConfig: publicProcedure.input(z2.object({ companySlug: z2.string() })).query(async ({ input }) => {
       const company = await requireCompanyBySlug(input.companySlug);
-      const [credentials, deliveryProvider] = await Promise.all([
+      const [credentials, deliveryProvider, feeReady] = await Promise.all([
         getConnectedCredentials(company.id),
-        quoteModeFor(company)
+        quoteModeFor(company),
+        platformFeeReady(company.id)
       ]);
       return {
-        connected: Boolean(credentials),
+        connected: Boolean(credentials) && feeReady,
         publicKey: credentials?.publicKey ?? null,
         deliveryProvider: deliveryProvider ?? null
       };
@@ -4230,6 +4383,22 @@ var appRouter = router({
         installments: input.installments,
         issuerId: input.issuerId
       });
+      if (payment.status === "approved" && !await ensureFeeRetained(
+        company.id,
+        String(payment.id),
+        payment,
+        payment.applicationFee
+      )) {
+        await setOrderPayment(input.orderId, {
+          paymentStatus: "refunded",
+          externalPaymentId: String(payment.id),
+          platformFeeAmount: payment.applicationFee.toFixed(2)
+        });
+        throw new TRPCError2({
+          code: "PRECONDITION_FAILED",
+          message: "N\xE3o foi poss\xEDvel concluir este pagamento e o valor foi estornado. Tente outra forma de pagamento."
+        });
+      }
       const paymentStatus = payment.status === "approved" || payment.status === "rejected" ? payment.status : "pending";
       await setOrderPayment(input.orderId, {
         paymentStatus,
@@ -4264,6 +4433,18 @@ var appRouter = router({
         return { paymentStatus: found.order.paymentStatus };
       const current = await getPayment(company.id, paymentId);
       if (current.status === "approved") {
+        if (!await ensureFeeRetained(
+          company.id,
+          paymentId,
+          current,
+          Number(found.order.platformFeeAmount ?? 0)
+        )) {
+          await setOrderPayment(input.orderId, {
+            paymentStatus: "refunded",
+            externalPaymentId: paymentId
+          });
+          return { paymentStatus: "refunded" };
+        }
         await setOrderPayment(input.orderId, {
           paymentStatus: "approved",
           externalPaymentId: paymentId
@@ -4304,7 +4485,19 @@ var appRouter = router({
       const paymentId = found.order.externalPaymentId;
       if (!paymentId || found.order.paymentStatus !== "pending")
         return { status: "cancelled" };
-      const markApproved = async () => {
+      const markApproved = async (payment) => {
+        if (!await ensureFeeRetained(
+          company.id,
+          paymentId,
+          payment,
+          Number(found.order.platformFeeAmount ?? 0)
+        )) {
+          await setOrderPayment(input.orderId, {
+            paymentStatus: "refunded",
+            externalPaymentId: paymentId
+          });
+          return { status: "cancelled" };
+        }
         await setOrderPayment(input.orderId, {
           paymentStatus: "approved",
           externalPaymentId: paymentId
@@ -4313,7 +4506,7 @@ var appRouter = router({
         return { status: "approved" };
       };
       const current = await getPayment(company.id, paymentId);
-      if (current.status === "approved") return markApproved();
+      if (current.status === "approved") return markApproved(current);
       if (current.payment_method_id !== "pix")
         throw new TRPCError2({
           code: "CONFLICT",
@@ -4321,7 +4514,7 @@ var appRouter = router({
         });
       if (current.status === "pending" && !await cancelPayment(company.id, paymentId)) {
         const latest = await getPayment(company.id, paymentId);
-        if (latest.status === "approved") return markApproved();
+        if (latest.status === "approved") return markApproved(latest);
         if (latest.status === "pending")
           throw new TRPCError2({
             code: "CONFLICT",
@@ -4588,6 +4781,14 @@ async function handleMercadoPagoWebhook(req, res) {
     }
     if (!existingOrder || existingOrder.id !== orderId || existingOrder.companyId !== companyId || Number(payment.transaction_amount).toFixed(2) !== Number(existingOrder.total).toFixed(2)) return;
     if (existingOrder.paymentStatus !== mappedStatus) {
+      if (mappedStatus === "approved") {
+        const { ensureFeeRetained: ensureFeeRetained2 } = await Promise.resolve().then(() => (init_mercadoPago(), mercadoPago_exports));
+        const ok = await ensureFeeRetained2(companyId, String(paymentId), payment, Number(existingOrder.platformFeeAmount ?? 0));
+        if (!ok) {
+          await setOrderPayment2(orderId, { paymentStatus: "refunded", externalPaymentId: String(paymentId) });
+          return;
+        }
+      }
       await setOrderPayment2(orderId, { paymentStatus: mappedStatus, externalPaymentId: String(paymentId) });
       if (mappedStatus === "approved") {
         const { notifyOrderEvent: notifyOrderEvent2 } = await Promise.resolve().then(() => (init_notifications(), notifications_exports));
