@@ -10,6 +10,38 @@ export function isSlugAvailableFormat(slug: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$/.test(slug) && !RESERVED_SLUGS.has(slug);
 }
 
+/** "Casa da Marmita" -> "casa-da-marmita" (sem acentos, só letras, números e hífen). */
+export function slugFromName(name: string): string {
+  const base = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/[\s-]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 50)
+    .replace(/-$/, "");
+  return base.length >= 3 ? base : `${base || "loja"}-cardapio`;
+}
+
+/** Primeiro endereço livre a partir do nome: nome, nome-2, nome-3… */
+export async function uniqueSlugFor(name: string): Promise<string> {
+  const base = slugFromName(name);
+  for (let n = 1; n <= 50; n++) {
+    const candidate = n === 1 ? base : `${base}-${n}`;
+    if (isSlugAvailableFormat(candidate) && !(await getCompanyBySlug(candidate)))
+      return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+export async function updateCompanySlug(companyId: number, slug: string) {
+  const db = getDb();
+  const { error } = await db.from("companies").update({ slug } as Record<string, unknown>).eq("id", companyId);
+  if (error) throw new Error(`[DB] Falha ao trocar o endereço: ${error.message}`);
+}
+
 export async function getCompanyBySlug(slug: string): Promise<Company | undefined> {
   const db = getDb();
   const { data, error } = await db.from("companies").select("*").eq("slug", slug).limit(1).maybeSingle();

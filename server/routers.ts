@@ -41,6 +41,8 @@ import {
   setCompanyFeePercent,
   updateCompanyBranding,
   updateCompanyOrdering,
+  uniqueSlugFor,
+  updateCompanySlug,
 } from "./companies";
 import { buildTestCompany, isTestMode } from "./testData";
 import { unavailableDeliveryResponse } from "@shared/delivery";
@@ -711,8 +713,9 @@ export const appRouter = router({
     signUp: protectedProcedure
       .input(
         z.object({
-          name: z.string().min(2),
-          slug: z.string().min(3).max(60),
+          name: z.string().trim().min(2).max(160),
+          /** Opcional: sem ele, o endereço sai do nome do negócio. */
+          slug: z.string().min(3).max(60).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -721,18 +724,18 @@ export const appRouter = router({
             code: "BAD_REQUEST",
             message: "Esta conta já está vinculada a uma empresa.",
           });
-        if (!isSlugAvailableFormat(input.slug))
+        if (input.slug && !isSlugAvailableFormat(input.slug))
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Esse endereço não é válido ou está reservado.",
           });
-        if (await getCompanyBySlug(input.slug))
+        if (input.slug && (await getCompanyBySlug(input.slug)))
           throw new TRPCError({
             code: "CONFLICT",
             message: "Esse endereço já está em uso.",
           });
         const company = await createCompany({
-          slug: input.slug,
+          slug: input.slug ?? (await uniqueSlugFor(input.name)),
           name: input.name,
         });
         await upsertUser({
@@ -741,6 +744,24 @@ export const appRouter = router({
           role: "admin",
         });
         return { slug: company.slug };
+      }),
+    /** Troca o endereço do cardápio (o link antigo deixa de funcionar). */
+    updateSlug: companyAdminProcedure
+      .input(z.object({ slug: z.string().trim().toLowerCase().min(3).max(60) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!isSlugAvailableFormat(input.slug))
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Use só letras minúsculas, números e hífen (de 3 a 60). Alguns nomes são reservados.",
+          });
+        const existing = await getCompanyBySlug(input.slug);
+        if (existing && existing.id !== ctx.companyId)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Esse endereço já está em uso por outra loja.",
+          });
+        if (!existing) await updateCompanySlug(ctx.companyId, input.slug);
+        return { slug: input.slug };
       }),
     checkSlug: publicProcedure
       .input(z.object({ slug: z.string() }))

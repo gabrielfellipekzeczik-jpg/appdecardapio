@@ -9,6 +9,7 @@ import { extractDominantColor } from "@/lib/color";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { StorefrontPreview } from "@/components/StorefrontPreview";
+import { SlugEditor } from "@/components/SlugEditor";
 
 const TEMPLATE_OPTIONS = [
   { id: "premium" as const, name: "Bistrô", description: "Escuro e elegante, com foto de fundo, categorias na lateral e carrinho sempre visível. Tem alternância claro/escuro." },
@@ -128,6 +129,7 @@ export function AppearancePanel() {
         </CardContent>
       </Card>
 
+      <SlugEditor currentSlug={company.slug} />
       <Card className="border-0 shadow-sm">
         <CardHeader><CardTitle className="font-display text-xl">Modelo da página</CardTitle><p className="mt-1 text-sm text-[#776e63]">Escolha o layout do seu cardápio público.</p></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">

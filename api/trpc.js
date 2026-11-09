@@ -2074,11 +2074,32 @@ __export(companies_exports, {
   listCompanies: () => listCompanies,
   setCompanyFeePercent: () => setCompanyFeePercent,
   setCompanyStatus: () => setCompanyStatus,
+  slugFromName: () => slugFromName,
+  uniqueSlugFor: () => uniqueSlugFor,
   updateCompanyBranding: () => updateCompanyBranding,
-  updateCompanyOrdering: () => updateCompanyOrdering
+  updateCompanyOrdering: () => updateCompanyOrdering,
+  updateCompanySlug: () => updateCompanySlug
 });
 function isSlugAvailableFormat(slug) {
   return /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$/.test(slug) && !RESERVED_SLUGS.has(slug);
+}
+function slugFromName(name) {
+  const base = name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9\s-]/g, "").trim().replace(/[\s-]+/g, "-").replace(/^-|-$/g, "").slice(0, 50).replace(/-$/, "");
+  return base.length >= 3 ? base : `${base || "loja"}-cardapio`;
+}
+async function uniqueSlugFor(name) {
+  const base = slugFromName(name);
+  for (let n = 1; n <= 50; n++) {
+    const candidate = n === 1 ? base : `${base}-${n}`;
+    if (isSlugAvailableFormat(candidate) && !await getCompanyBySlug(candidate))
+      return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+async function updateCompanySlug(companyId, slug) {
+  const db = getDb();
+  const { error } = await db.from("companies").update({ slug }).eq("id", companyId);
+  if (error) throw new Error(`[DB] Falha ao trocar o endere\xE7o: ${error.message}`);
 }
 async function getCompanyBySlug(slug) {
   const db = getDb();
@@ -3580,8 +3601,9 @@ var appRouter = router({
     // for why this is a second step rather than done at supabase.auth.signUp time).
     signUp: protectedProcedure.input(
       z2.object({
-        name: z2.string().min(2),
-        slug: z2.string().min(3).max(60)
+        name: z2.string().trim().min(2).max(160),
+        /** Opcional: sem ele, o endereço sai do nome do negócio. */
+        slug: z2.string().min(3).max(60).optional()
       })
     ).mutation(async ({ ctx, input }) => {
       if (ctx.user.companyId)
@@ -3589,18 +3611,18 @@ var appRouter = router({
           code: "BAD_REQUEST",
           message: "Esta conta j\xE1 est\xE1 vinculada a uma empresa."
         });
-      if (!isSlugAvailableFormat(input.slug))
+      if (input.slug && !isSlugAvailableFormat(input.slug))
         throw new TRPCError2({
           code: "BAD_REQUEST",
           message: "Esse endere\xE7o n\xE3o \xE9 v\xE1lido ou est\xE1 reservado."
         });
-      if (await getCompanyBySlug(input.slug))
+      if (input.slug && await getCompanyBySlug(input.slug))
         throw new TRPCError2({
           code: "CONFLICT",
           message: "Esse endere\xE7o j\xE1 est\xE1 em uso."
         });
       const company = await createCompany({
-        slug: input.slug,
+        slug: input.slug ?? await uniqueSlugFor(input.name),
         name: input.name
       });
       await upsertUser({
@@ -3609,6 +3631,22 @@ var appRouter = router({
         role: "admin"
       });
       return { slug: company.slug };
+    }),
+    /** Troca o endereço do cardápio (o link antigo deixa de funcionar). */
+    updateSlug: companyAdminProcedure.input(z2.object({ slug: z2.string().trim().toLowerCase().min(3).max(60) })).mutation(async ({ ctx, input }) => {
+      if (!isSlugAvailableFormat(input.slug))
+        throw new TRPCError2({
+          code: "BAD_REQUEST",
+          message: "Use s\xF3 letras min\xFAsculas, n\xFAmeros e h\xEDfen (de 3 a 60). Alguns nomes s\xE3o reservados."
+        });
+      const existing = await getCompanyBySlug(input.slug);
+      if (existing && existing.id !== ctx.companyId)
+        throw new TRPCError2({
+          code: "CONFLICT",
+          message: "Esse endere\xE7o j\xE1 est\xE1 em uso por outra loja."
+        });
+      if (!existing) await updateCompanySlug(ctx.companyId, input.slug);
+      return { slug: input.slug };
     }),
     checkSlug: publicProcedure.input(z2.object({ slug: z2.string() })).query(async ({ input }) => {
       if (!isSlugAvailableFormat(input.slug))

@@ -22,13 +22,6 @@ const RESEND_SECONDS = 60;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INPUT_CLASS = "rounded-xl border-[#e5e0d7] bg-[#fbfaf7] focus-visible:ring-[#ff1c2e]/30";
 
-const DIACRITICS_REGEX = new RegExp("[\\u0300-\\u036f]", "g");
-
-function slugify(value: string) {
-  return value.toLowerCase().normalize("NFD").replace(DIACRITICS_REGEX, "")
-    .replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 60);
-}
-
 // Traduz os erros mais comuns (Supabase + falhas de rede/servidor) para algo que o usuário entende.
 function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
@@ -93,8 +86,6 @@ export default function CompanySignUp() {
 
   const [step, setStep] = useState<"form" | "verify">("form");
   const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [slugTouched, setSlugTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -104,8 +95,6 @@ export default function CompanySignUp() {
   const [submitting, setSubmitting] = useState(false);
   const [resendIn, setResendIn] = useState(0);
 
-  useEffect(() => { if (!slugTouched) setSlug(slugify(name)); }, [name, slugTouched]);
-
   // Contagem regressiva para liberar o "Reenviar código".
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -113,10 +102,6 @@ export default function CompanySignUp() {
     return () => clearTimeout(timer);
   }, [resendIn]);
 
-  const slugCheck = trpc.company.checkSlug.useQuery(
-    { slug },
-    { enabled: slug.length >= 3, staleTime: 5_000, retry: 1 },
-  );
   const signUpMutation = trpc.company.signUp.useMutation();
 
   const alreadyLoggedInNoCompany = Boolean(isAuthenticated && user && !user.companyId);
@@ -125,7 +110,6 @@ export default function CompanySignUp() {
   const emailValid = EMAIL_REGEX.test(cleanEmail);
   const passwordValid = password.length >= 6;
   const passwordsMatch = password === confirmPassword;
-  const slugTaken = slugCheck.data?.available === false;
 
   // O botão NÃO depende mais da resposta do servidor: antes, se a consulta do endereço
   // falhasse (servidor fora do ar, variável faltando), o botão ficava desabilitado para sempre.
@@ -133,16 +117,15 @@ export default function CompanySignUp() {
   const canSubmit = useMemo(
     () =>
       name.trim().length >= 2 &&
-      slug.length >= 3 &&
-      !slugTaken &&
       (alreadyLoggedInNoCompany ||
         (emailValid && passwordValid && confirmPassword.length > 0 && passwordsMatch)),
-    [name, slug, slugTaken, alreadyLoggedInNoCompany, emailValid, passwordValid, confirmPassword, passwordsMatch],
+    [name, alreadyLoggedInNoCompany, emailValid, passwordValid, confirmPassword, passwordsMatch],
   );
 
   // Cria a empresa depois que o e-mail foi confirmado e a sessão existe.
   const finishCompany = async () => {
-    const result = await signUpMutation.mutateAsync({ name: name.trim(), slug });
+    // O endereço do cardápio sai do nome; o servidor escolhe um livre (nome, nome-2...).
+    const result = await signUpMutation.mutateAsync({ name: name.trim() });
     await utils.auth.me.invalidate();
     navigate(`/${result.slug}/admin`);
   };
@@ -156,13 +139,6 @@ export default function CompanySignUp() {
     setInfo(null);
     setSubmitting(true);
     try {
-      // 1) Confere o endereço no servidor ANTES de criar a conta (evita conta sem empresa).
-      const slugResult = await utils.company.checkSlug.fetch({ slug });
-      if (!slugResult.available) {
-        setError("Esse endereço já está em uso ou não é válido. Escolha outro.");
-        return;
-      }
-
       // 2) Usuário já logado, só falta a empresa.
       if (alreadyLoggedInNoCompany) {
         await finishCompany();
@@ -361,36 +337,6 @@ export default function CompanySignUp() {
           />
         </div>
 
-        <div>
-          <label className="field-label" htmlFor="signup-slug">Endereço do seu cardápio</label>
-          <div className="flex items-center gap-1 text-sm text-[#776e63]">
-            <span className="whitespace-nowrap">seudominio.com/</span>
-            <Input
-              id="signup-slug"
-              required
-              value={slug}
-              onChange={(e) => { setSlug(slugify(e.target.value)); setSlugTouched(true); }}
-              className={INPUT_CLASS}
-            />
-          </div>
-          {slug.length >= 3 && (
-            <p
-              className={`mt-1 text-xs ${
-                slugTaken ? "text-red-600" : slugCheck.data?.available ? "text-emerald-600" : "text-[#9a9185]"
-              }`}
-            >
-              {slugCheck.isFetching
-                ? "Verificando..."
-                : slugCheck.isError
-                  ? "Não foi possível verificar agora; conferiremos ao criar."
-                  : slugTaken
-                    ? "✗ Esse endereço já está em uso ou não é válido"
-                    : slugCheck.data?.available
-                      ? "✓ Disponível"
-                      : null}
-            </p>
-          )}
-        </div>
 
         {!alreadyLoggedInNoCompany && (
           <>
