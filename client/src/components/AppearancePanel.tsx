@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { extractDominantColor } from "@/lib/color";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
+import { StorefrontPreview } from "@/components/StorefrontPreview";
 
 const TEMPLATE_OPTIONS = [
   { id: "premium" as const, name: "Bistrô", description: "Escuro e elegante, com foto de fundo, categorias na lateral e carrinho sempre visível. Tem alternância claro/escuro." },
@@ -41,6 +42,8 @@ export function AppearancePanel() {
   }, [companyQuery.data]);
 
   const company = companyQuery.data;
+  // Cada mudança salva recarrega a prévia do cardápio.
+  const previewVersion = companyQuery.dataUpdatedAt;
 
   async function uploadImage(file: File, prefix: "logo" | "hero"): Promise<string> {
     const path = `${company!.id}/${prefix}-${Date.now()}.${file.name.split(".").pop() ?? "png"}`;
@@ -86,7 +89,8 @@ export function AppearancePanel() {
   if (companyQuery.isLoading || !company) return <div className="animate-pulse rounded-2xl bg-white p-8"><div className="h-6 w-48 rounded bg-[#eeeae3]" /></div>;
 
   return (
-    <div className="space-y-5">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="min-w-0 space-y-5">
       <Card className="border-0 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div><CardTitle className="font-display text-xl">Identidade visual</CardTitle><p className="mt-1 text-sm text-[#776e63]">Nome, logo e cor que aparecem no seu cardápio.</p></div>
@@ -168,6 +172,8 @@ export function AppearancePanel() {
           </CardContent>
         )}
       </Card>
+    </div>
+    <StorefrontPreview slug={company.slug} version={previewVersion} />
     </div>
   );
 }
